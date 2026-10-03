@@ -80,14 +80,18 @@ const wrapperInfoPlist = `<?xml version="1.0" encoding="UTF-8"?>
 // matches the bundle grant (verified live: rc=1 despite bundle granted).
 // Also builds/installs the osd helper (native brightness overlay) next to
 // the binary when swiftc is available.
-func ensureWrapperApp() (string, error) {
+// Second return: true when the bundle's code content changed (new binary
+// copied or seal re-signed) — the ad-hoc cdhash moved, so any TCC grant is
+// pinned to the OLD hash and must be reset + re-granted (verified live).
+func ensureWrapperApp() (string, bool, error) {
+	resigned := false
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	src, err := os.Executable()
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	if resolved, err := filepath.EvalSymlinks(src); err == nil {
 		src = resolved
@@ -98,27 +102,28 @@ func ensureWrapperApp() (string, error) {
 	// TCC grant; /Applications may not even be writable). The DMG ships the
 	// wrapper already; launchd points at it as-is.
 	if i := strings.Index(src, ".app/Contents/MacOS/"); i >= 0 {
-		return src[:i+4], nil
+		return src[:i+4], false, nil
 	}
 	app := filepath.Join(home, "Applications", "monctl.app")
 	inner := filepath.Join(app, "Contents", "MacOS", "monctl")
 	if err := os.MkdirAll(filepath.Dir(inner), 0o755); err != nil {
-		return "", err
+		return "", false, err
 	}
 	if err := os.WriteFile(filepath.Join(app, "Contents", "Info.plist"), []byte(wrapperInfoPlist), 0o644); err != nil {
-		return "", err
+		return "", false, err
 	}
 	// Only copy when the binary actually changed: rewriting the file breaks
 	// the bundle seal (forcing a re-sign, which voids the TCC grant).
 	if src != inner && !filesIdentical(src, inner) {
 		if err := copyFile(src, inner); err != nil {
-			return "", err
+			return "", false, err
 		}
+		resigned = true
 	}
 	// Wrapper restarts the in-bundle binary (KeepAlive semantics; the agent
 	// runs the wrapper directly, no `open`/LaunchServices in the chain).
 	if err := writeWrapper(app, inner); err != nil {
-		return "", err
+		return "", false, err
 	}
 	// Build the OSD helper into the bundle (best effort — needs swiftc; the
 	// daemon degrades silently to no-OSD when it's absent). Rebuild only when
@@ -138,8 +143,9 @@ func ensureWrapperApp() (string, error) {
 	// hash, so re-signing on every run would invalidate the user's grant.
 	if err := exec.Command("codesign", "--verify", "--deep", app).Run(); err != nil {
 		_ = exec.Command("codesign", "--force", "--deep", "-s", "-", app).Run()
+		resigned = true
 	}
-	return app, nil
+	return app, resigned, nil
 }
 
 func copyFile(src, dst string) error {
@@ -236,9 +242,16 @@ func cmdAutostart(argv []string) int {
 		fmt.Println("autostart removed:", plist)
 		return 0
 	}
-	app, err := ensureWrapperApp()
+	app, resigned, err := ensureWrapperApp()
 	if err != nil {
 		return fail(err)
+	}
+	if resigned {
+		// The cdhash moved; a TCC grant pinned to the old hash is dead
+		// weight and would silently mask the new prompt. Reset so the
+		// prompt-and-poll flow in `watch` re-grants the new hash.
+		_ = exec.Command("tccutil", "reset", "Accessibility", launchAgentLabel).Run()
+		_ = exec.Command("tccutil", "reset", "ListenEvent", launchAgentLabel).Run()
 	}
 	wrapperPath := filepath.Join(app, "Contents", "MacOS", "monctl-wrapper")
 	content := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
@@ -268,6 +281,9 @@ func cmdAutostart(argv []string) int {
 		_ = exec.Command("launchctl", "load", plist).Run()
 	}
 	fmt.Printf("autostart registered: %s (opens %s)\n", plist, app)
+	if resigned {
+		fmt.Println("code changed -> TCC grant reset; approve the prompt on next daemon start")
+	}
 	fmt.Println("If hotkeys do not work, grant Accessibility to monctl:")
 	fmt.Println("  System Settings -> Privacy & Security -> Accessibility -> + -> Cmd+Shift+G ->", app)
 	return 0

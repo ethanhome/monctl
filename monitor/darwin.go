@@ -44,6 +44,15 @@ static cfDictRef goDisplayInfoDict(uint32_t id) {
     return (cfDictRef)CoreDisplay_DisplayCreateInfoDictionary((CGDirectDisplayID)id);
 }
 
+// goDictIsVirtualDevice reports the kCGDisplayIsVirtualDevice flag. Virtual
+// displays (headless synth, Sidecar, AirPlay) have no DDC transport — list
+// them at all and users get a phantom monitor with a misleading OSD hint
+// (observed on macOS 27: KVM switched away -> "Virtual-1", vendor "unkn").
+static int goDictIsVirtualDevice(cfDictRef dictRef) {
+    CFTypeRef v = CFDictionaryGetValue((CFDictionaryRef)dictRef, CFSTR("kCGDisplayIsVirtualDevice"));
+    return v && CFGetTypeID(v) == CFBooleanGetTypeID() && CFBooleanGetValue((CFBooleanRef)v);
+}
+
 // goDisplayName extracts DisplayAttributes -> ProductAttributes -> ProductName.
 static void goDisplayName(cfDictRef dictRef, char *out, int outLen) {
     out[0] = '\0';
@@ -220,7 +229,11 @@ func (c *darwinController) List() ([]Info, error) {
 		if dict == nil {
 			continue // virtual display (Sidecar/AirPlay): no info dictionary
 		}
+		virtual := C.goDictIsVirtualDevice(dict) != 0
 		C.CFRelease(C.CFTypeRef(unsafe.Pointer(dict)))
+		if virtual {
+			continue // headless synth display: no DDC, don't advertise it
+		}
 		var name [128]C.char
 		C.goDisplayProductName(C.uint32_t(id), &name[0], C.int(len(name)))
 		desc := C.GoString(&name[0])

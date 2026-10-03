@@ -29,6 +29,7 @@ var hkMod = map[string]hotkey.Modifier{
 var hkKey = map[string]hotkey.Key{
 	"up": hotkey.KeyUp, "down": hotkey.KeyDown,
 	"left": hotkey.KeyLeft, "right": hotkey.KeyRight,
+	"o": hotkey.KeyO,
 	// f13/f14: G HUB (or similar) can remap vendor-only keys to emit these;
 	// no physical keyboard sends them, so they never collide with typing.
 	"f13": hotkey.KeyF13, "f14": hotkey.KeyF14,
@@ -103,6 +104,47 @@ func applyAction(ctrl monitor.Controller, hk monitor.Hotkey) error {
 	return nil
 }
 
+// applyPowerVerified performs a power action and verifies it landed by
+// watching the display list. The G95NC's DDC handler goes through phases
+// where it ACKs power writes (0xD6) without acting on them — I2C "ok" is
+// no proof (verified live: 4 consecutive ignored writes across 0x51/0x50,
+// minutes at a time; brightness/input never affected). The display list
+// dropping the target (or a display reappearing for "on") is the only
+// honest witness. Retries inside the ignoring window; gives up after ~8s.
+func applyPowerVerified(ctrl monitor.Controller, hk monitor.Hotkey) error {
+	val := strings.ToLower(strings.TrimSpace(hk.Value))
+	wantOff := val == "off" || val == "standby"
+	online := func() int {
+		infos, err := ctrl.List()
+		if err != nil {
+			return -1
+		}
+		return len(infos)
+	}
+	if err := applyAction(ctrl, hk); err != nil {
+		return err
+	}
+	before := online()
+	deadline := time.Now().Add(8 * time.Second)
+	for time.Now().Before(deadline) {
+		now := online()
+		// Success = the visible effect: displays vanish (off/standby) or
+		// count recovers/grows (on after a working off).
+		if wantOff && now < before {
+			return nil // display vanished
+		}
+		if !wantOff && now >= before && before >= 0 {
+			return nil // already lit, or display recovered
+		}
+		time.Sleep(400 * time.Millisecond)
+		if now == before { // still ignored -> write again
+			_ = applyAction(ctrl, hk)
+		}
+		before = now
+	}
+	return nil // best effort: never spam errors for a panel mood
+}
+
 // showBrightnessOSD displays the native macOS brightness OSD (sun icon +
 // level bar) at pct (0..100) on display displayID via the bundled osd
 // helper (com.apple.OSDUIHelper, same as MonitorControl/BetterDisplay).
@@ -150,6 +192,18 @@ func cmdWatch(argv []string) int {
 		return fail(err)
 	}
 	ctrl := monitor.New()
+
+	// Show the OS Accessibility grant prompt when untrusted; registering
+	// below would otherwise fail silently until the user finds the pane by
+	// hand. Trust arrives asynchronously — later retries pick it up.
+	if !ensureAXTrust() {
+		fmt.Fprintln(os.Stderr, "monctl watch: waiting for Accessibility grant (prompt shown)")
+		// Trust lands asynchronously; poll so the grant heals THIS run —
+		// the media-hotkey path below never retries on its own.
+		for i := 0; i < 60 && !ensureAXTrust(); i++ { // ~2min, then fall through to the normal error path
+			time.Sleep(2 * time.Second)
+		}
+	}
 
 	// Raw-input listener. On Windows it also carries KVM stuck-key
 	// scrubbing (keyboard (dis)appearance), which must run even when the
@@ -225,7 +279,13 @@ func cmdWatch(argv []string) int {
 				if switchKVM {
 					waitModifiersReleased(2 * time.Second)
 				}
-				if err := applyAction(ctrl, binding); err != nil {
+				var err error
+				if switchKVM {
+					err = applyPowerVerified(ctrl, binding)
+				} else {
+					err = applyAction(ctrl, binding)
+				}
+				if err != nil {
 					fmt.Fprintf(os.Stderr, "monctl watch: %s: %v\n", binding.Keys, err)
 				}
 			}

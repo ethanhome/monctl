@@ -47,6 +47,13 @@ Power: on off standby. Requires monitor OSD setting **DDC/CI: Enabled**.
   binaries on external drives.
 - `monctl autostart` installs `~/Library/LaunchAgents/com.bacnh85.monctl.plist`
   (starts `monctl watch` at login, KeepAlive).
+- macOS 27: DDC needs the panel on the Mac's input (KVM). When the monitor is
+  switched away, macOS synthesizes a headless virtual display
+  (`kCGDisplayIsVirtualDevice`); monctl skips it in `scan` instead of showing
+  a phantom display with a misleading OSD hint. The hotkey daemon needs the
+  **Accessibility** grant (Input Monitoring alone is not enough — the event
+  taps are active, not listen-only); `monctl watch` now pops the OS prompt
+  itself and polls ~2min for the grant to land.
 - Panels disagree on the DDC sub-address; monctl alternates 0x51 (standard)
   and 0x50 (some Samsungs) per retry. Force one with `MONCTL_DDC_ADDR=50`;
   tune the reply wait with `MONCTL_DDC_DELAY_MS` (default 40ms per spec).
@@ -55,6 +62,11 @@ Power: on off standby. Requires monitor OSD setting **DDC/CI: Enabled**.
   DDC — concurrent bus access corrupts reads.
 - G95NC quirks: `get power` returns 0/0 (the panel accepts power-mode writes
   but does not report the state back); `set power off/standby` works.
+- G95NC power-writes are intermittent: the panel goes through minutes-long
+  phases of ACKing 0xD6 writes without acting (brightness/input unaffected).
+  `monctl watch` power actions therefore verify via the display list and
+  re-write for up to ~8s — press the hotkey again if the first attempt is
+  swallowed. Power hotkeys fire on key-release (like input switches).
 
 Examples:
 
