@@ -12,28 +12,20 @@ jobs:
     strategy:
       matrix:
         include:
-          # Windows: pure Go, cross-compiles from Linux. Two binaries:
-          # monctl (console) + monctl-tray (silent, -H windowsgui)
+          # Windows: pure Go, cross-compiles from Linux.
           - goos: windows
             goarch: amd64
             runs-on: ubuntu-latest
           - goos: windows
             goarch: arm64
             runs-on: ubuntu-latest
-          # macOS: hotkey lib needs cgo -> native runner.
-          # arm64 builds ALSO produce monctl.app + monctl.dmg (the recommended
-          # install form; see README). osd helper (native brightness overlay) needs
-          # swiftc + macOS SDK, so .app packaging runs on the mac runner only.
+          # macOS: IOAVService needs cgo -> native runner.
           - goos: darwin
             goarch: amd64
             runs-on: macos-15-intel
           - goos: darwin
             goarch: arm64
             runs-on: macos-latest
-          # Linux: hotkey lib needs cgo + X11 headers
-          - goos: linux
-            goarch: amd64
-            runs-on: ubuntu-latest
     runs-on: ${{ matrix.runs-on }}
     env:
       GOOS: ${{ matrix.goos }}
@@ -43,28 +35,17 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: 'stable'
-      - name: Install X11 headers (linux)
-        if: matrix.goos == 'linux'
-        run: sudo apt-get update && sudo apt-get install -y libx11-dev
       - name: Build
         shell: bash
         run: |
           mkdir -p dist
           LDFLAGS="-s -w -X main.version=${GITHUB_REF_NAME}"
-          # CGO only matters for darwin/linux (hotkey); windows is pure Go
+          # CGO only matters for darwin (IOAVService); windows is pure Go
           if [ "$GOOS" = "windows" ]; then
             CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o dist/monctl-${GOOS}-${GOARCH}.exe .
-            CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -H windowsgui" -o dist/monctl-tray-${GOOS}-${GOARCH}.exe .
           else
             go build -trimpath -ldflags "-s -w" -o dist/monctl-${GOOS}-${GOARCH} .
           fi
-      - name: Package macOS .app + .dmg (arm64 only; Apple Silicon is the supported target)
-        if: matrix.goos == 'darwin' && matrix.goarch == 'arm64'
-        run: |
-          ./tools/app/mkapp.sh dist/monctl-darwin-arm64 dist "${GITHUB_REF_NAME#v}"
-          ./tools/app/mkdmg.sh dist dist/monctl-macos-arm64.dmg monctl
-          # .app supersedes the bare arm64 binary in the release
-          rm dist/monctl-darwin-arm64
       - uses: actions/upload-artifact@v4
         with:
           name: dist-${{ matrix.goos }}-${{ matrix.goarch }}

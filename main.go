@@ -1,5 +1,6 @@
-// monctl - DDC/CI monitor control CLI (Windows first, macOS planned).
+// monctl - DDC/CI monitor control CLI.
 package main
+
 import (
 	"flag"
 	"fmt"
@@ -17,10 +18,6 @@ Usage:
   monctl get   <name> [-m N]           Read brightness|contrast|input|power
   monctl set   <name> <value> [-m N]   Set: number, +N/-N offset, input/power name, or 0xNN
   monctl vcp   <0xcode> [value] [-m N] Raw VCP read/write escape hatch
-  monctl watch [--config PATH]         Run hotkey daemon (foreground)
-  monctl config                        Write example config if absent, print its path
-  monctl probe-input [-t 30s]          Log raw-input events (HID usages, key scancodes)
-  monctl autostart [--remove]          Register/unregister watch daemon in HKCU Run key
 
 Examples:
   monctl set brightness 30             all monitors to 30
@@ -41,14 +38,6 @@ func run(args []string) int {
 		return cmdGetSet(args[0], args[1:])
 	case "vcp":
 		return cmdVCP(args[1:])
-	case "watch":
-		return cmdWatch(args[1:])
-	case "config":
-		return cmdConfig()
-	case "autostart":
-		return cmdAutostart(args[1:])
-	case "probe-input":
-		return cmdProbeInput(args[1:])
 	case "-h", "--help", "help":
 		fmt.Print(usage)
 		return 0
@@ -57,6 +46,8 @@ func run(args []string) int {
 		return 2
 	}
 }
+
+func main() { os.Exit(run(os.Args[1:])) }
 
 func fail(err error) int {
 	fmt.Fprintf(os.Stderr, "monctl: %v\n", err)
@@ -154,7 +145,6 @@ func cmdGetSet(verb string, argv []string) int {
 }
 
 // applySet handles "+N"/"-N" offsets and absolute values.
-// Shared by CLI and watch daemon.
 // Continuous controls (brightness/contrast): inputs are PERCENT 0-100,
 // scaled to the panel-reported max (this G95NC reports max=50).
 func applySet(ctrl monitor.Controller, m monitor.Info, code byte, name, rawVal string) (int, error) {
