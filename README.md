@@ -12,8 +12,8 @@ Verified live on:
 
 ## Build
 
-    go build -o bin/monctl.exe .                                  # Windows
-    go build -o bin/monctl .                                      # macOS (needs CGO + Xcode CLT)
+    go build -o bin/monctl.exe ./cmd/monctl                       # Windows
+    go build -o bin/monctl ./cmd/monctl                           # macOS (needs CGO + Xcode CLT)
 
 ## Usage
 
@@ -58,7 +58,9 @@ Examples:
 
 ## Layout
 
-    main.go            CLI dispatch (scan / get / set / vcp)
+    cmd/monctl/        CLI dispatch (scan / get / set / vcp), no business logic
+    internal/service/  Shared business layer: control lookup, value parsing,
+                       VCP max scaling, per-monitor get/set (+ tests)
     monitor/           Controller seam; windows.go = dxva2/user32 syscalls;
                        darwin.go = IOAVService DDC (Apple Silicon, cgo);
                        vcp.go = VCP codes + input map (+ tests)

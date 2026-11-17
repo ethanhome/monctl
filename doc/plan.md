@@ -32,7 +32,7 @@
 
 ---
 
-## 步骤 2:抽出 `internal/service`,CLI 改为调用它 `[ ]`
+## 步骤 2:抽出 `internal/service`,CLI 改为调用它 `[~]`(已实现,待审核)
 
 **目的**:CLI 与 GUI 共用同一套业务逻辑。
 
