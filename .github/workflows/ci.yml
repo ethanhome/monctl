@@ -67,6 +67,9 @@ jobs:
         working-directory: gui
         shell: bash
         run: |
+          # wails writes the generated JS with the exec bit on some runners;
+          # only content differences matter.
+          git config core.fileMode false
           wails generate module
           git diff --exit-code -- frontend/wailsjs
       - name: Build
