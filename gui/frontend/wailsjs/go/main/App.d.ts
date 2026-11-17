@@ -15,6 +15,4 @@ export function SetContrast(arg1:number,arg2:number):Promise<void>;
 
 export function SetInput(arg1:number,arg2:string):Promise<void>;
 
-export function SetPower(arg1:number,arg2:string):Promise<void>;
-
 export function SetSkipSwitchConfirm(arg1:boolean):Promise<void>;

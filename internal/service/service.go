@@ -53,6 +53,9 @@ func New() *Service { return &Service{ctrl: monitor.New()} }
 // NewWithController returns a Service backed by ctrl (tests).
 func NewWithController(ctrl monitor.Controller) *Service { return &Service{ctrl: ctrl} }
 
+// List returns the attached monitors without reading any VCP controls.
+func (s *Service) List() ([]monitor.Info, error) { return s.ctrl.List() }
+
 // Scan lists monitors with their current input and power readings.
 func (s *Service) Scan() ([]MonitorState, error) {
 	infos, err := s.ctrl.List()

@@ -11,11 +11,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: 'stable'
       - run: go build ./...
@@ -32,18 +32,17 @@ jobs:
           exit 1
 
   gui:
-    # The GUI only ships for Windows 10/11 (amd64) and macOS (arm64).
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest]
+        os: [windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: 'stable'
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
       - name: Install Wails CLI
@@ -62,8 +61,45 @@ jobs:
         run: |
           go vet ./...
           go test ./...
+      - name: Build
+        working-directory: gui
+        run: wails build -nocolour
+
+  macos:
+    # CLI and GUI share one job on purpose: GitHub's arm64 macOS runners are a
+    # small pool and jobs can sit queued until GitHub cancels them (~15 min
+    # observed). One runner per run instead of two halves that exposure.
+    # macos-14 was cancelled instantly (image unavailable). macos-15 has been
+    # congested for hours at a time; macos-26 is a separate arm64 pool.
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: 'stable'
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Install Wails CLI
+        shell: bash
+        run: |
+          go install github.com/wailsapp/wails/v2/cmd/wails@v2.17.1
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: CLI build, vet and test
+        run: |
+          go build ./...
+          go vet ./...
+          go test ./...
+      - name: Stub the embedded frontend dist
+        working-directory: gui
+        shell: bash
+        run: mkdir -p frontend/dist && touch frontend/dist/.gitkeep
+      - name: GUI vet and test
+        working-directory: gui
+        run: |
+          go vet ./...
+          go test ./...
       - name: Bindings are up to date
-        if: runner.os == 'macOS'
         working-directory: gui
         shell: bash
         run: |
@@ -72,6 +108,6 @@ jobs:
           git config core.fileMode false
           wails generate module
           git diff --exit-code -- frontend/wailsjs
-      - name: Build
+      - name: GUI build
         working-directory: gui
         run: wails build -nocolour

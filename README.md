@@ -37,20 +37,20 @@ binary; put it on the internal disk (e.g. `~/bin/monctl`).
 
 The window lists every detected monitor. For each monitor:
 
-- **输入源** shows the input sources. The source the monitor is currently
-  on is marked `● 当前` and is not clickable — this computer *is* that
-  source, so switching to it is meaningless. Every other source has a
-  切换 button.
-- Clicking 切换 asks for confirmation; tick 不再提示 to switch without
-  asking from then on.
-- **After switching, the window deliberately does not change.** The 当前
+- **Input sources** are listed under a heading, current source first. That
+  source is marked as current and is not clickable — this computer *is*
+  that source, so switching to it is meaningless. Every other source has a
+  switch button.
+- Clicking a switch button asks for confirmation; tick "don't ask again" to
+  switch without the prompt from then on.
+- **After switching, the window deliberately does not change.** The current
   marker stays where it was, because that is still the truth. Switching
   back later shows exactly the screen you left.
-- Click a source's name to label it (e.g. 工作PC). Labels are stored per
+- Click a source's name to label it (e.g. "Work PC"). Labels are stored per
   monitor model in the user config directory.
 - Brightness and contrast appear below the list, but only when the current
   input source can be read; a control the panel cannot report is hidden
-  individually. Power offers 开 / 待机 / 关.
+  individually.
 
 The source list is the generic MCCS set (VGA, DVI, DP1, DP2, HDMI1, HDMI2,
 USB-C). Panels report their capabilities inconsistently, so ports a monitor
@@ -75,6 +75,9 @@ control it any more. There is no automatic switch-back.
 Brightness/contrast values are **percent 0-100**, scaled to the panel-reported
 VCP max (G95NC reports 50). Inputs: vga dvi dp1 dp2 hdmi1 hdmi2 usb-c.
 Power: on off standby. Requires monitor OSD setting **DDC/CI: Enabled**.
+A panel put into standby/off often stops answering DDC, so the app cannot
+wake it again; use the monitor's own power button or restore the input
+signal. This is why power is CLI-only and no longer offered in the GUI.
 
 Examples:
 
