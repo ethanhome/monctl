@@ -184,6 +184,9 @@ func PowerName(v byte) string {
 	return fmt.Sprintf("0x%02X", v)
 }
 
+// Percent converts a raw VCP level to 0-100 against the panel max.
+func Percent(v, hi int) int { return percent(v, hi) }
+
 func percent(v, hi int) int {
 	if hi == 0 {
 		return 0

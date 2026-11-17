@@ -14,8 +14,20 @@ export function SaveLabel(arg1, arg2, arg3) {
   return window['go']['main']['App']['SaveLabel'](arg1, arg2, arg3);
 }
 
+export function SetBrightness(arg1, arg2) {
+  return window['go']['main']['App']['SetBrightness'](arg1, arg2);
+}
+
+export function SetContrast(arg1, arg2) {
+  return window['go']['main']['App']['SetContrast'](arg1, arg2);
+}
+
 export function SetInput(arg1, arg2) {
   return window['go']['main']['App']['SetInput'](arg1, arg2);
+}
+
+export function SetPower(arg1, arg2) {
+  return window['go']['main']['App']['SetPower'](arg1, arg2);
 }
 
 export function SetSkipSwitchConfirm(arg1) {

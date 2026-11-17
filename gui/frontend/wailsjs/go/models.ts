@@ -16,12 +16,43 @@ export namespace main {
 	        this.raw = source["raw"];
 	    }
 	}
+	export class LevelView {
+	    ok: boolean;
+	    percent: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new LevelView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ok = source["ok"];
+	        this.percent = source["percent"];
+	    }
+	}
+	export class PowerView {
+	    ok: boolean;
+	    state: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new PowerView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ok = source["ok"];
+	        this.state = source["state"];
+	    }
+	}
 	export class MonitorView {
 	    index: number;
 	    id: string;
 	    description: string;
 	    primary: boolean;
 	    input: InputView;
+	    brightness: LevelView;
+	    contrast: LevelView;
+	    power: PowerView;
 	    labels: Record<string, string>;
 	
 	    static createFrom(source: any = {}) {
@@ -35,6 +66,9 @@ export namespace main {
 	        this.description = source["description"];
 	        this.primary = source["primary"];
 	        this.input = this.convertValues(source["input"], InputView);
+	        this.brightness = this.convertValues(source["brightness"], LevelView);
+	        this.contrast = this.convertValues(source["contrast"], LevelView);
+	        this.power = this.convertValues(source["power"], PowerView);
 	        this.labels = source["labels"];
 	    }
 	

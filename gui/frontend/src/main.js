@@ -1,5 +1,14 @@
 import './style.css';
-import { ListMonitors, GetSettings, SaveLabel, SetInput, SetSkipSwitchConfirm } from '../wailsjs/go/main/App';
+import {
+    ListMonitors,
+    GetSettings,
+    SaveLabel,
+    SetInput,
+    SetSkipSwitchConfirm,
+    SetBrightness,
+    SetContrast,
+    SetPower,
+} from '../wailsjs/go/main/App';
 
 // Fixed input-source list (MCCS names from monitor/vcp.go). It is generic:
 // the panel may not actually have every port, which the hint under the list
@@ -132,8 +141,99 @@ function monitorView(m) {
     section.append(rows, el('p', 'hint', '列表为通用输入源，不代表显示器实际拥有这些接口'));
     if (!m.input.ok) {
         section.append(el('p', 'warn', '无法读取当前输入源，暂不能调节亮度等设置'));
+    } else {
+        section.append(controls(m));
     }
     return section;
+}
+
+// controls renders brightness/contrast/power. A control the panel could not
+// be read for is hidden rather than shown greyed out, and the whole block is
+// only rendered when the current input is known.
+function controls(m) {
+    const box = el('div', 'controls');
+    if (m.brightness?.ok) box.append(levelRow(m, 'brightness', '亮度', m.brightness.percent));
+    if (m.contrast?.ok) box.append(levelRow(m, 'contrast', '对比度', m.contrast.percent));
+    box.append(powerRow(m));
+    return box;
+}
+
+function levelRow(m, kind, label, initial) {
+    const row = el('div', 'ctl-row');
+    row.append(el('span', 'ctl-name', label));
+
+    const range = document.createElement('input');
+    range.type = 'range';
+    range.min = '0';
+    range.max = '100';
+    range.step = '1';
+    range.value = String(initial);
+    range.className = 'slider';
+    const val = el('span', 'ctl-val', `${initial}%`);
+    row.append(range, val);
+
+    let confirmed = initial;
+    let timer = 0;
+    let seq = 0;
+    const apply = async () => {
+        timer = 0;
+        const want = Number(range.value);
+        const my = ++seq;
+        try {
+            if (kind === 'brightness') await SetBrightness(m.index, want);
+            else await SetContrast(m.index, want);
+            if (my === seq) confirmed = want;
+        } catch (err) {
+            if (my !== seq) return;
+            // Most likely the panel moved to another source: put the slider
+            // back where the panel actually is and say why.
+            console.error(`${kind}:`, err);
+            seq = 0;
+            range.value = String(confirmed);
+            val.textContent = `${confirmed}%`;
+            toast('无法与显示器通信，可能已切换到其他输入源');
+        }
+    };
+    range.addEventListener('input', () => {
+        val.textContent = `${range.value}%`;
+        clearTimeout(timer);
+        timer = setTimeout(apply, 180);
+    });
+    range.addEventListener('change', () => {
+        clearTimeout(timer);
+        apply();
+    });
+    return row;
+}
+
+const POWERS = [
+    ['on', '开'],
+    ['standby', '待机'],
+    ['off', '关'],
+];
+
+function powerRow(m) {
+    const row = el('div', 'ctl-row power-row');
+    row.append(el('span', 'ctl-name', '电源'));
+    const group = el('div', 'power-group');
+    for (const [state, label] of POWERS) {
+        const b = el('button', 'power', label);
+        if (m.power?.ok && m.power.state === state) b.classList.add('active');
+        b.onclick = () => setPower(m, state, b);
+        group.append(b);
+    }
+    row.append(group);
+    return row;
+}
+
+async function setPower(m, state, btn) {
+    try {
+        await SetPower(m.index, state);
+        for (const b of btn.parentElement.children) b.classList.toggle('active', b === btn);
+    } catch (err) {
+        console.error('power:', err);
+        toast('无法与显示器通信，可能已切换到其他输入源');
+    }
 }
 
 function inputText(name) {

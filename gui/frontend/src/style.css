@@ -322,3 +322,57 @@ button.primary:hover:not(:disabled) {
     background: var(--accent);
     filter: brightness(1.08);
 }
+
+.controls {
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid var(--line);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.ctl-row {
+    display: grid;
+    grid-template-columns: 58px 1fr 52px;
+    align-items: center;
+    gap: 10px;
+    padding: 0 10px;
+}
+
+.ctl-row.power-row {
+    grid-template-columns: 58px 1fr;
+}
+
+.ctl-name {
+    color: var(--muted);
+    font-size: 13px;
+}
+
+.slider {
+    width: 100%;
+    margin: 0;
+    accent-color: var(--accent);
+}
+
+.ctl-val {
+    text-align: right;
+    color: var(--muted);
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+}
+
+.power-group {
+    display: flex;
+    gap: 6px;
+}
+
+button.power {
+    padding: 3px 14px;
+}
+
+button.power.active {
+    background: var(--card);
+    border-color: var(--muted);
+    font-weight: 600;
+}

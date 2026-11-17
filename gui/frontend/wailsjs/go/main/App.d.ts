@@ -9,6 +9,12 @@ export function ListMonitors():Promise<Array<main.MonitorView>>;
 
 export function SaveLabel(arg1:string,arg2:string,arg3:string):Promise<void>;
 
+export function SetBrightness(arg1:number,arg2:number):Promise<void>;
+
+export function SetContrast(arg1:number,arg2:number):Promise<void>;
+
 export function SetInput(arg1:number,arg2:string):Promise<void>;
+
+export function SetPower(arg1:number,arg2:string):Promise<void>;
 
 export function SetSkipSwitchConfirm(arg1:boolean):Promise<void>;
