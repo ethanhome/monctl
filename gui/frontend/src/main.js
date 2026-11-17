@@ -227,6 +227,14 @@ function powerRow(m) {
 }
 
 async function setPower(m, state, btn) {
+    if (state === 'off') {
+        const r = await confirmDialog({
+            title: '关闭显示器电源？',
+            desc: '关闭后本机将无法控制这台显示器，需要按显示器上的电源键或恢复输入信号才能唤醒。',
+            okLabel: '关闭',
+        });
+        if (!r.ok) return;
+    }
     try {
         await SetPower(m.index, state);
         for (const b of btn.parentElement.children) b.classList.toggle('active', b === btn);
@@ -312,29 +320,33 @@ function targetText(inputLabel, label) {
     return label ? `${inputLabel}（${label}）` : inputLabel;
 }
 
-// askSwitch shows the confirmation dialog and resolves to {ok, skip}.
-function askSwitch(inputLabel, label) {
+// confirmDialog resolves to {ok, checked}; checked is the optional
+// "don't ask again" box.
+function confirmDialog({ title, desc, okLabel = '确定', checkboxLabel = '' }) {
     return new Promise((resolve) => {
         const dlg = el('dialog', 'confirm');
-        dlg.append(el('p', 'confirm-title', `切换到 ${targetText(inputLabel, label)}？`));
-        dlg.append(el('p', 'confirm-desc', '切换后本机将无法控制这台显示器，需要在其他电脑或显示器上切回。'));
+        dlg.append(el('p', 'confirm-title', title));
+        dlg.append(el('p', 'confirm-desc', desc));
 
-        const dont = document.createElement('input');
-        dont.type = 'checkbox';
-        const dontRow = el('label', 'dont-ask');
-        dontRow.append(dont, document.createTextNode('不再提示'));
-        dlg.append(dontRow);
+        let dont = null;
+        if (checkboxLabel) {
+            dont = document.createElement('input');
+            dont.type = 'checkbox';
+            const row = el('label', 'dont-ask');
+            row.append(dont, document.createTextNode(checkboxLabel));
+            dlg.append(row);
+        }
 
         const actions = el('div', 'confirm-actions');
         const cancel = el('button', '', '取消');
-        const go = el('button', 'primary', '切换');
+        const go = el('button', 'primary', okLabel);
         actions.append(cancel, go);
         dlg.append(actions);
 
-        let result = { ok: false, skip: false };
+        let result = { ok: false, checked: false };
         cancel.onclick = () => dlg.close();
         go.onclick = () => {
-            result = { ok: true, skip: dont.checked };
+            result = { ok: true, checked: !!(dont && dont.checked) };
             dlg.close();
         };
         dlg.addEventListener('close', () => {
@@ -347,6 +359,15 @@ function askSwitch(inputLabel, label) {
     });
 }
 
+function askSwitch(inputLabel, label) {
+    return confirmDialog({
+        title: `切换到 ${targetText(inputLabel, label)}？`,
+        desc: '切换后本机将无法控制这台显示器，需要在其他电脑或显示器上切回。',
+        okLabel: '切换',
+        checkboxLabel: '不再提示',
+    });
+}
+
 // switchInput sends the input change. The UI is deliberately left untouched:
 // the current marker stays on the source we just left, so switching back
 // later shows exactly the state the user left.
@@ -355,7 +376,7 @@ async function switchInput(m, key, inputLabel) {
     if (!state.skipSwitchConfirm) {
         const r = await askSwitch(inputLabel, m.labels?.[key]);
         if (!r.ok) return;
-        if (r.skip) {
+        if (r.checked) {
             try {
                 await SetSkipSwitchConfirm(true);
                 state.skipSwitchConfirm = true;
