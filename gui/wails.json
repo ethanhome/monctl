@@ -9,5 +9,10 @@
   "author": {
     "name": "bacnh85",
     "email": ""
+  },
+  "info": {
+    "companyName": "bacnh85",
+    "productName": "monctl",
+    "productVersion": "1.0.0"
   }
 }

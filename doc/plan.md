@@ -130,7 +130,7 @@
 
 ---
 
-## 步骤 7:CI 与 Release 打包 `[ ]`
+## 步骤 7:CI 与 Release 打包 `[~]`(已实现,待审核)
 
 **目的**:用户只需要在 GitHub Release 下载对应平台的二进制安装。只支持 Windows 10/11(amd64)和 macOS arm64。详见设计文档 7.1。
 

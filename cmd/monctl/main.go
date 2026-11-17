@@ -17,6 +17,7 @@ Usage:
   monctl get   <name> [-m N]           Read brightness|contrast|input|power
   monctl set   <name> <value> [-m N]   Set: number, +N/-N offset, input/power name, or 0xNN
   monctl vcp   <0xcode> [value] [-m N] Raw VCP read/write escape hatch
+  monctl version                       Print the version
 
 Examples:
   monctl set brightness 30             all monitors to 30
@@ -24,6 +25,9 @@ Examples:
   monctl set input hdmi2               switch source
   monctl set power off                 sleep the panel
 `
+
+// version is injected at release time: -ldflags "-X main.version=v1.2.3".
+var version = "dev"
 
 func main() { os.Exit(run(os.Args[1:])) }
 
@@ -39,6 +43,9 @@ func run(args []string) int {
 		return cmdGetSet(args[0], args[1:])
 	case "vcp":
 		return cmdVCP(args[1:])
+	case "version", "-v", "--version":
+		fmt.Printf("monctl %s\n", version)
+		return 0
 	case "-h", "--help", "help":
 		fmt.Print(usage)
 		return 0

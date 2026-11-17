@@ -10,45 +10,69 @@ permissions:
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
         include:
-          # Windows: pure Go, cross-compiles from Linux.
-          - goos: windows
-            goarch: amd64
-            runs-on: ubuntu-latest
-          - goos: windows
-            goarch: arm64
-            runs-on: ubuntu-latest
-          # macOS: IOAVService needs cgo -> native runner.
-          - goos: darwin
-            goarch: amd64
-            runs-on: macos-15-intel
-          - goos: darwin
-            goarch: arm64
-            runs-on: macos-latest
-    runs-on: ${{ matrix.runs-on }}
-    env:
-      GOOS: ${{ matrix.goos }}
-      GOARCH: ${{ matrix.goarch }}
+          # Supported targets only: Windows 10/11 amd64, macOS Apple Silicon.
+          # Windows GUI needs a Windows runner (WebView2); the CLI still
+          # cross-compiles, but is built here to keep one machine per target.
+          - os: windows-latest
+            target_os: windows
+            target_arch: amd64
+          - os: macos-latest
+            target_os: darwin
+            target_arch: arm64
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: 'stable'
-      - name: Build
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Wails CLI
         shell: bash
+        run: |
+          go install github.com/wailsapp/wails/v2/cmd/wails@v2.17.1
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Build CLI
+        shell: bash
+        env:
+          TARGET_OS: ${{ matrix.target_os }}
+          TARGET_ARCH: ${{ matrix.target_arch }}
         run: |
           mkdir -p dist
           LDFLAGS="-s -w -X main.version=${GITHUB_REF_NAME}"
-          # CGO only matters for darwin (IOAVService); windows is pure Go
-          if [ "$GOOS" = "windows" ]; then
-            CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o dist/monctl-${GOOS}-${GOARCH}.exe ./cmd/monctl
+          if [ "$TARGET_OS" = "windows" ]; then
+            CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "$LDFLAGS" \
+              -o dist/monctl-windows-amd64.exe ./cmd/monctl
           else
-            go build -trimpath -ldflags "-s -w" -o dist/monctl-${GOOS}-${GOARCH} ./cmd/monctl
+            GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags "$LDFLAGS" \
+              -o dist/monctl-darwin-arm64 ./cmd/monctl
           fi
+      - name: Set GUI version
+        shell: bash
+        working-directory: gui
+        run: |
+          python3 -c "import json,os;p='wails.json';d=json.load(open(p));d.setdefault('info',{})['productVersion']=os.environ['GITHUB_REF_NAME'].lstrip('v');json.dump(d,open(p,'w'),indent=2)"
+      - name: Build GUI (Windows)
+        if: matrix.target_os == 'windows'
+        shell: bash
+        working-directory: gui
+        run: |
+          wails build -nocolour -o monctl-gui-windows-amd64
+          cp build/bin/monctl-gui-windows-amd64.exe ../dist/
+      - name: Build GUI + dmg (macOS)
+        if: matrix.target_os == 'darwin'
+        shell: bash
+        working-directory: gui
+        run: |
+          wails build -nocolour
+          ../tools/app/mkdmg.sh build/bin ../dist/monctl-macos-arm64.dmg monctl
       - uses: actions/upload-artifact@v4
         with:
-          name: dist-${{ matrix.goos }}-${{ matrix.goarch }}
+          name: dist-${{ matrix.target_os }}-${{ matrix.target_arch }}
           path: dist/
 
   release:

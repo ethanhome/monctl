@@ -1,11 +1,12 @@
 name: CI
+
 on:
   push:
     branches: [main]
   pull_request:
 
 jobs:
-  build:
+  cli:
     strategy:
       fail-fast: false
       matrix:
@@ -28,3 +29,39 @@ jobs:
             echo "::error::$line"
           done
           exit 1
+
+  gui:
+    # The GUI only ships for Windows 10/11 (amd64) and macOS (arm64).
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Wails CLI
+        shell: bash
+        run: |
+          go install github.com/wailsapp/wails/v2/cmd/wails@v2.17.1
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Vet and test
+        working-directory: gui
+        run: |
+          go vet ./...
+          go test ./...
+      - name: Bindings are up to date
+        if: runner.os == 'macOS'
+        working-directory: gui
+        shell: bash
+        run: |
+          wails generate module
+          git diff --exit-code -- frontend/wailsjs
+      - name: Build
+        working-directory: gui
+        run: wails build -nocolour
