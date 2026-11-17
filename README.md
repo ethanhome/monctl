@@ -1,7 +1,9 @@
 # monctl
 
-DDC/CI monitor control CLI for Windows and macOS (Apple Silicon). Single Go
-binary — scan, control brightness/contrast/input/power, bind global hotkeys.
+DDC/CI monitor control for Windows 10/11 and macOS (Apple Silicon): a CLI
+and a small desktop app sharing one backend. Scan monitors, set
+brightness/contrast/input/power — and, for a monitor shared by several
+computers, switch which computer is on screen.
 
 Verified live on:
 - Windows: Samsung Odyssey G95NC via HDMI-2 (input `0x12`, brightness VCP max=50)
@@ -10,50 +12,85 @@ Verified live on:
   sub-address from the get-request checksum, which the G95NC silently rejects);
   monctl sends spec-correct checksums and self-adapts the sub-address per retry.
 
-## Build
+## Install
 
-    go build -o bin/monctl.exe .                                  # Windows
-    go build -ldflags "-H windowsgui" -o bin/monctl-tray.exe .    # Windows silent bg
-    go build -o bin/monctl .                                      # macOS (needs CGO + Xcode CLT)
+Download from the [latest release](../../releases/latest):
 
-## Usage
+| File | What it is |
+|---|---|
+| `monctl-gui-windows-amd64.exe` | Desktop app, Windows 10/11 (amd64) |
+| `monctl-windows-amd64.exe` | CLI, Windows 10/11 (amd64) |
+| `monctl-macos-arm64.dmg` | Desktop app, Apple Silicon |
+| `monctl-darwin-arm64` | CLI, Apple Silicon |
+
+The Windows app needs the WebView2 runtime. It ships with Windows 11 and
+with most updated Windows 10 installs; if the window stays blank, install
+the [WebView2 runtime](https://developer.microsoft.com/microsoft-edge/webview2/)
+once.
+
+The macOS app is not notarised. On first launch macOS refuses to open it:
+right-click → Open, or run
+`xattr -d com.apple.quarantine /Applications/monctl.app`. The CLI is a bare
+binary; put it on the internal disk (e.g. `~/bin/monctl`).
+
+## GUI
+
+The window lists every detected monitor. For each monitor:
+
+- **输入源** shows the input sources. The source the monitor is currently
+  on is marked `● 当前` and is not clickable — this computer *is* that
+  source, so switching to it is meaningless. Every other source has a
+  切换 button.
+- Clicking 切换 asks for confirmation; tick 不再提示 to switch without
+  asking from then on.
+- **After switching, the window deliberately does not change.** The 当前
+  marker stays where it was, because that is still the truth. Switching
+  back later shows exactly the screen you left.
+- Click a source's name to label it (e.g. 工作PC). Labels are stored per
+  monitor model in the user config directory.
+- Brightness and contrast appear below the list, but only when the current
+  input source can be read; a control the panel cannot report is hidden
+  individually. Power offers 开 / 待机 / 关.
+
+The source list is the generic MCCS set (VGA, DVI, DP1, DP2, HDMI1, HDMI2,
+USB-C). Panels report their capabilities inconsistently, so ports a monitor
+does not have are still listed; the window says so.
+
+### Switching between computers
+
+Install monctl on every computer attached to the monitor. To move the
+screen, use the computer you are currently on and switch to the other
+one's input. To come back, use that other computer (or the monitor's own
+buttons) — once the panel shows another input, this computer cannot
+control it any more. There is no automatic switch-back.
+
+## CLI
 
     monctl scan                        # list monitors (EDID model) + input/power
     monctl get  brightness|contrast|input|power [-m N]
     monctl set  <name> <value> [-m N]  # value: percent, +N/-N offset, name, or 0xNN
     monctl vcp  <0xcode> [value]       # raw DDC escape hatch
-    monctl watch [--config PATH]       # hotkey daemon (foreground)
-    monctl config                      # write example config, print path
-    monctl autostart [--remove]        # Windows: HKCU Run key; macOS: LaunchAgent
+    monctl version
 
 Brightness/contrast values are **percent 0-100**, scaled to the panel-reported
 VCP max (G95NC reports 50). Inputs: vga dvi dp1 dp2 hdmi1 hdmi2 usb-c.
 Power: on off standby. Requires monitor OSD setting **DDC/CI: Enabled**.
 
+Examples:
+
+    monctl set brightness 30
+    monctl set brightness +10
+    monctl set input hdmi2
+    monctl set power off
+
 ### macOS notes (Apple Silicon)
 
 - Uses the private `IOAVService` DDC/CI API (same as m1ddc / MonitorControl).
   Intel Macs are not supported.
-- Global hotkeys (`watch`) need two macOS pieces: the process must run on
-  the OS main thread (handled internally via mainthread.Init) and the binary
-  must be granted **Accessibility** (System Settings -> Privacy & Security
-  -> Accessibility -> add monctl). Without the grant, `watch` exits with a
-  clear "grant the application Accessibility" error (verified: with the
-  grant, all hotkeys register and the daemon stays up). Note the grant is
-  **per binary path**: a rebuilt binary at the same path stays trusted, but
-  a copy at a new path needs its own grant.
-- Install the binary on the **internal disk** (e.g. `~/bin/monctl`), not an
-  external volume — launchd-spawned processes can stall in dyld opening
-  binaries on external drives.
-- `monctl autostart` installs `~/Library/LaunchAgents/com.bacnh85.monctl.plist`
-  (starts `monctl watch` at login, KeepAlive).
 - macOS 27: DDC needs the panel on the Mac's input (KVM). When the monitor is
   switched away, macOS synthesizes a headless virtual display
   (`kCGDisplayIsVirtualDevice`); monctl skips it in `scan` instead of showing
-  a phantom display with a misleading OSD hint. The hotkey daemon needs the
-  **Accessibility** grant (Input Monitoring alone is not enough — the event
-  taps are active, not listen-only); `monctl watch` now pops the OS prompt
-  itself and polls ~2min for the grant to land.
+  a phantom display with a misleading OSD hint.
 - Panels disagree on the DDC sub-address; monctl alternates 0x51 (standard)
   and 0x50 (some Samsungs) per retry. Force one with `MONCTL_DDC_ADDR=50`;
   tune the reply wait with `MONCTL_DDC_DELAY_MS` (default 40ms per spec).
@@ -64,129 +101,25 @@ Power: on off standby. Requires monitor OSD setting **DDC/CI: Enabled**.
   but does not report the state back); `set power off/standby` works.
 - G95NC power-writes are intermittent: the panel goes through minutes-long
   phases of ACKing 0xD6 writes without acting (brightness/input unaffected).
-  `monctl watch` power actions therefore verify via the display list and
-  re-write for up to ~8s — press the hotkey again if the first attempt is
-  swallowed. Power hotkeys fire on key-release (like input switches).
+  Re-issue `set power` if the first attempt is swallowed.
 
-Examples:
+## Build
 
-    monctl set brightness 30
-    monctl set brightness +10
-    monctl set input hdmi2
-    monctl set power off
+    go build -o bin/monctl.exe ./cmd/monctl        # CLI, Windows
+    go build -o bin/monctl ./cmd/monctl            # CLI, macOS (CGO + Xcode CLT)
 
-## Install (macOS)
+    cd gui && wails build                          # GUI -> gui/build/bin/
 
-Download `monctl-macos-arm64.dmg` from the [latest release](../../releases/latest), open it,
-and drag **monctl** to **Applications**.
-
-Then in Terminal:
-
-```bash
-/Applications/monctl.app/Contents/MacOS/monctl autostart   # installs LaunchAgent
-```
-
-Grant Accessibility when prompted (System Settings -> Privacy & Security ->
-Accessibility -> monctl). The daemon starts automatically at login and
-registers the hotkeys (including the native brightness-key tap).
-
-> The .app is ad-hoc signed (no Apple Developer ID), so macOS may ask you to
-> approve it under Privacy & Security on first run — click "Open Anyway".
-> For the CLI alone you can also `brew install go && go install
-> github.com/bacnh85/monctl@latest` and run `monctl` directly (no hotkeys
-> or autostart).
-
-## Install (Windows)
-
-Download `monctl-windows-amd64.exe` (and optionally `monctl-tray-…` for the
-silent variant), then:
-
-```powershell
-monctl autostart    # registers HKCU Run key
-```
-
-## Hotkeys
-
-`monctl watch` reads `%APPDATA%\monctl\config.json` (written by `monctl config`):
-
-    {"hotkeys":[
-      {"keys":"ctrl+alt+up",    "action":"brightness","target":"@all","value":"-10"},
-      {"keys":"ctrl+alt+down",  "action":"brightness","target":"@all","value":"+10"},
-      {"keys":"ctrl+alt+left",  "action":"input",     "target":"@all","value":"dp1"},
-      {"keys":"ctrl+alt+right", "action":"input",     "target":"@all","value":"hdmi2"},
-      {"keys":"ctrl+alt+shift+p","action":"power",     "target":"@all","value":"off"}]}
-
-Keys: ctrl shift alt win + up down left right p. Edit file, restart daemon.
-
-### Stuck Ctrl/Alt/Tab after KVM switches (Windows)
-
-Switching the monitor's input also moves its USB hub between hosts. A host
-that loses the keyboard mid-keystroke never sees the key-ups; the host that
-gains it can receive phantom reports at enumeration (and Logitech G HUB /
-Options+ re-inject synthetic input when the device (re)appears — AltGr/RAlt
-presents as BOTH Ctrl and Alt stuck). `monctl watch` on Windows therefore
-scrubs modifier + Tab key state via `WM_INPUT_DEVICE_CHANGE`: three passes
-on keyboard arrival (0/1s/3s — covers agent re-injection), one on removal.
-This covers OSD-menu switches too, which bypass monctl entirely. It runs
-even with `"native_brightness": false` (the raw-input listener is kept),
-is single-flight (multi-TLC keyboards fire one sequence, not several), and
-skips only keys PHYSICALLY pressed on this host — software re-injections
-(G HUB/Options+) are tracked as phantoms, never as held keys, so they stay
-scrub-eligible.
-`monctl probe-input -t 30s` during a switch shows which mechanism produces
-the phantoms on your setup (`injected=true` events = G HUB/Options+, not
-the keyboard). macOS scrubbing (Windows→Mac direction) is not implemented.
-
-### Native brightness keys (macOS, Fn layer / media events)
-
-On macOS `monctl watch` taps the **brightness media events** (NX_KEYTYPE_
-BRIGHTNESS_UP/DOWN) and routes them to DDC brightness on all monitors —
-bare F1/F2 keycodes are deliberately NOT touched and keep working as
-normal function keys for apps.
-
-Backlight-less Macs (Mac mini) asymmetry, observed live: macOS synthesizes
-BRIGHTNESS_DOWN media events but silently swallows BRIGHTNESS_UP (nothing
-internal to brighten). With a vendor keyboard (Logitech etc.) whose Fn
-layer reaches macOS, Fn+brightness-down works natively; brightness-up has
-no native event. The shipped config therefore uses **^⌘F1 = down** (works;
-^⌘F2 collides with the macOS Ctrl-F2 menu-bar shortcut and never reaches
-taps) and **^⌥F2 = up** (bypasses that collision; also reachable via
-Logi Options+ keystroke mapping from the keyboard's brightness keys).
-Add `"native_brightness": false` to config.json to opt out of the media
-tap.
-
-### Native brightness keys (Windows, raw input)
-
-On Windows `monctl watch` listens on the **HID consumer page** via raw
-input (`RIDEV_INPUTSINK`, works in background) and routes the brightness
-usages (0x6F up / 0x70 down) to DDC brightness ±10 on all monitors. These
-keys are not VK codes, so they cannot be grabbed with RegisterHotKey.
-
-**Logitech Options+ / G HUB caveat:** these apps intercept media keys
-*below* the OS input stack (raw input never sees the real reports) and
-re-inject only volume/mute as synthetic keystrokes — brightness keys get
-dropped into a "system brightness" call that does nothing on DDC-only
-monitors. With the Options+ agent (`logioptionsplus_agent.exe`) not
-running, the keyboard's native HID usages reach the watcher directly.
-
-Diagnostics: `monctl probe-input -t 30s` logs HID usages + raw keyboard
-events + a low-level keyboard hook (with `injected=` flags that expose
-software re-injection); `monctl probe-input -list` enumerates which HID
-collections support brightness usages without pressing anything.
-
-If you must keep Options+ running: remap the brightness keys *inside*
-Options+ to send **F13**/**F14** keystrokes (no physical keyboard emits
-those) and bind `"f13"`/`"f14"` in config.json hotkeys. Same
-`"native_brightness": false` opt-out applies to the native watcher.
-
-Run `bin\monctl-tray.exe watch` at login for silent hotkeys:
-`monctl autostart` registers it under HKCU ...\CurrentVersion\Run.
+The GUI requires the [Wails CLI](https://wails.io) v2.17.1, Node, and (on
+macOS) Xcode CLT. Only Windows amd64 and macOS arm64 are release targets.
 
 ## Layout
 
-    main.go            CLI dispatch
-    watch.go           hotkey daemon (golang.design/x/hotkey)
-    autostart*.go      config + autostart registration (Run key / LaunchAgent)
+    cmd/monctl/        CLI dispatch (scan / get / set / vcp / version)
+    internal/service/  Shared business layer: control lookup, value parsing,
+                       VCP max scaling, per-monitor get/set (+ tests)
+    internal/settings/ GUI preferences: input labels, skip-switch-confirm
+    gui/               Wails app (separate module), vanilla JS frontend
     monitor/           Controller seam; windows.go = dxva2/user32 syscalls;
                        darwin.go = IOAVService DDC (Apple Silicon, cgo);
                        vcp.go = VCP codes + input map (+ tests)

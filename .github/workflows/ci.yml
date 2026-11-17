@@ -1,11 +1,13 @@
 name: CI
+
 on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch: # allow running CI on a feature branch without a PR
 
 jobs:
-  build:
+  cli:
     strategy:
       fail-fast: false
       matrix:
@@ -16,14 +18,6 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: 'stable'
-      - name: Install X11 headers + Xvfb (linux)
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update && sudo apt-get install -y libx11-dev xvfb
-          # golang.design/x/hotkey opens the X display in package init;
-          # headless runners panic without a frame buffer.
-          Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
-          echo "DISPLAY=:99.0" >> "$GITHUB_ENV"
       - run: go build ./...
       - run: go vet ./...
       - name: Test (on failure, emit tail as annotations — readable via API)
@@ -36,3 +30,48 @@ jobs:
             echo "::error::$line"
           done
           exit 1
+
+  gui:
+    # The GUI only ships for Windows 10/11 (amd64) and macOS (arm64).
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Wails CLI
+        shell: bash
+        run: |
+          go install github.com/wailsapp/wails/v2/cmd/wails@v2.17.1
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Stub the embedded frontend dist
+        # A fresh checkout has no frontend/dist (it is a build artefact), and
+        # main.go embeds it, so go vet/test need the directory to exist.
+        working-directory: gui
+        shell: bash
+        run: mkdir -p frontend/dist && touch frontend/dist/.gitkeep
+      - name: Vet and test
+        working-directory: gui
+        run: |
+          go vet ./...
+          go test ./...
+      - name: Bindings are up to date
+        if: runner.os == 'macOS'
+        working-directory: gui
+        shell: bash
+        run: |
+          # wails writes the generated JS with the exec bit on some runners;
+          # only content differences matter.
+          git config core.fileMode false
+          wails generate module
+          git diff --exit-code -- frontend/wailsjs
+      - name: Build
+        working-directory: gui
+        run: wails build -nocolour
