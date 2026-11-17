@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch: # allow running CI on a feature branch without a PR
 
 jobs:
   cli:
