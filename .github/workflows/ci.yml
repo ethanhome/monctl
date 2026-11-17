@@ -69,9 +69,9 @@ jobs:
     # CLI and GUI share one job on purpose: GitHub's arm64 macOS runners are a
     # small pool and jobs can sit queued until GitHub cancels them (~15 min
     # observed). One runner per run instead of two halves that exposure.
-    # macos-14 was cancelled instantly (image unavailable), so stay on 15 and
-    # retry when the pool is congested.
-    runs-on: macos-15
+    # macos-14 was cancelled instantly (image unavailable). macos-15 has been
+    # congested for hours at a time; macos-26 is a separate arm64 pool.
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
