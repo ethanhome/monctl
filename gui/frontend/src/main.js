@@ -7,7 +7,6 @@ import {
     SetSkipSwitchConfirm,
     SetBrightness,
     SetContrast,
-    SetPower,
 } from '../wailsjs/go/main/App';
 
 // Fixed input-source list (MCCS names from monitor/vcp.go). It is generic:
@@ -147,14 +146,13 @@ function monitorView(m) {
     return section;
 }
 
-// controls renders brightness/contrast/power. A control the panel could not
-// be read for is hidden rather than shown greyed out, and the whole block is
+// controls renders brightness/contrast. A control the panel could not be
+// read for is hidden rather than shown greyed out, and the whole block is
 // only rendered when the current input is known.
 function controls(m) {
     const box = el('div', 'controls');
     if (m.brightness?.ok) box.append(levelRow(m, 'brightness', '亮度', m.brightness.percent));
     if (m.contrast?.ok) box.append(levelRow(m, 'contrast', '对比度', m.contrast.percent));
-    box.append(powerRow(m));
     return box;
 }
 
@@ -204,44 +202,6 @@ function levelRow(m, kind, label, initial) {
         apply();
     });
     return row;
-}
-
-const POWERS = [
-    ['on', '开'],
-    ['standby', '待机'],
-    ['off', '关'],
-];
-
-function powerRow(m) {
-    const row = el('div', 'ctl-row power-row');
-    row.append(el('span', 'ctl-name', '电源'));
-    const group = el('div', 'power-group');
-    for (const [state, label] of POWERS) {
-        const b = el('button', 'power', label);
-        if (m.power?.ok && m.power.state === state) b.classList.add('active');
-        b.onclick = () => setPower(m, state, b);
-        group.append(b);
-    }
-    row.append(group);
-    return row;
-}
-
-async function setPower(m, state, btn) {
-    if (state === 'off') {
-        const r = await confirmDialog({
-            title: '关闭显示器电源？',
-            desc: '关闭后本机将无法控制这台显示器，需要按显示器上的电源键或恢复输入信号才能唤醒。',
-            okLabel: '关闭',
-        });
-        if (!r.ok) return;
-    }
-    try {
-        await SetPower(m.index, state);
-        for (const b of btn.parentElement.children) b.classList.toggle('active', b === btn);
-    } catch (err) {
-        console.error('power:', err);
-        toast('无法与显示器通信，可能已切换到其他输入源');
-    }
 }
 
 function inputText(name) {

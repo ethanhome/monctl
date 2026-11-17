@@ -13,6 +13,7 @@ type fakeCtrl struct {
 	cur    map[byte]int
 	max    map[byte]int
 	writes map[byte]byte
+	reads  map[byte]int
 	getErr error
 }
 
@@ -23,15 +24,16 @@ func newFake() *fakeCtrl {
 			monitor.VCPInput:      0x1B, // unknown to the name table
 			monitor.VCPBrightness: 30,   // of max 50 -> 60%
 			monitor.VCPContrast:   25,   // of max 50 -> 50%
-			monitor.VCPPower:      0,    // unreported
 		},
 		max:    map[byte]int{monitor.VCPBrightness: 50, monitor.VCPContrast: 50},
 		writes: map[byte]byte{},
+		reads:  map[byte]int{},
 	}
 }
 
 func (f *fakeCtrl) List() ([]monitor.Info, error) { return f.infos, nil }
 func (f *fakeCtrl) GetVCP(_ monitor.Info, code byte) (int, int, error) {
+	f.reads[code]++
 	if f.getErr != nil {
 		return 0, 0, f.getErr
 	}
@@ -94,22 +96,6 @@ func TestSetLevelRejectsOutOfRange(t *testing.T) {
 	}
 }
 
-func TestSetPower(t *testing.T) {
-	f := newFake()
-	a := newTestApp(f)
-	for state, want := range map[string]byte{"on": monitor.PowerOn, "off": monitor.PowerOff, "standby": monitor.PowerStandby} {
-		if err := a.SetPower(0, state); err != nil {
-			t.Fatal(err)
-		}
-		if got := f.writes[monitor.VCPPower]; got != want {
-			t.Errorf("%s: wrote 0x%02X want 0x%02X", state, got, want)
-		}
-	}
-	if err := a.SetPower(0, "sleep"); err == nil {
-		t.Error("unknown state must fail")
-	}
-}
-
 // Monitor index 0 is a real monitor; it must not mean "all".
 func TestSetInputTargetsIndexZero(t *testing.T) {
 	f := newFake()
@@ -140,8 +126,9 @@ func TestListMonitorsMapsReadings(t *testing.T) {
 	if !m.Contrast.OK || m.Contrast.Percent != 50 {
 		t.Errorf("contrast: %+v", m.Contrast)
 	}
-	if m.Power.OK {
-		t.Errorf("power 0/0 must not be reported as a known state: %+v", m.Power)
+	// Power is CLI-only; the GUI must not touch VCP 0xD6.
+	if f.reads[monitor.VCPPower] != 0 {
+		t.Errorf("GUI read power %d times", f.reads[monitor.VCPPower])
 	}
 }
 
@@ -153,7 +140,7 @@ func TestListMonitorsMarksUnreadableControls(t *testing.T) {
 		t.Fatalf("a DDC read failure must not fail the whole listing: %v", err)
 	}
 	for _, m := range got {
-		if m.Input.OK || m.Brightness.OK || m.Contrast.OK || m.Power.OK {
+		if m.Input.OK || m.Brightness.OK || m.Contrast.OK {
 			t.Errorf("all controls should be unknown: %+v", m)
 		}
 	}

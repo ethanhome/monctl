@@ -58,13 +58,6 @@ type LevelView struct {
 	Percent int  `json:"percent"`
 }
 
-// PowerView is the current power state. OK is false when the panel does not
-// report a recognised state (some panels return 0/0 and never do).
-type PowerView struct {
-	OK    bool   `json:"ok"`
-	State string `json:"state"` // on|off|standby
-}
-
 // MonitorView is one monitor as rendered by the UI.
 type MonitorView struct {
 	Index       int               `json:"index"`
@@ -74,29 +67,32 @@ type MonitorView struct {
 	Input       InputView         `json:"input"`
 	Brightness  LevelView         `json:"brightness"`
 	Contrast    LevelView         `json:"contrast"`
-	Power       PowerView         `json:"power"`
 	Labels      map[string]string `json:"labels"`
 }
 
 // ListMonitors scans monitors with their current input source and labels.
 func (a *App) ListMonitors() ([]MonitorView, error) {
 	a.ddcMu.Lock()
-	states, err := a.svc.Scan()
+	infos, err := a.svc.List()
 	if err != nil {
 		a.ddcMu.Unlock()
 		return nil, err
 	}
-	// Scan covers input and power; brightness/contrast are only needed by the
-	// GUI, so they are read here rather than in the shared Scan.
+	// Power (VCP 0xD6) is CLI-only: a panel put into standby/off often stops
+	// answering DDC, so the GUI neither reads nor writes it.
+	ictl, _ := service.LookupControl("input")
 	bctl, _ := service.LookupControl("brightness")
 	cctl, _ := service.LookupControl("contrast")
-	bright := make([]service.Reading, len(states))
-	contrast := make([]service.Reading, len(states))
-	var berrs, cerrs []error
-	for i, s := range states {
-		bright[i], err = a.svc.Get(s.Info, bctl)
+	input := make([]service.Reading, len(infos))
+	bright := make([]service.Reading, len(infos))
+	contrast := make([]service.Reading, len(infos))
+	var ierrs, berrs, cerrs []error
+	for i, m := range infos {
+		input[i], err = a.svc.Get(m, ictl)
+		ierrs = append(ierrs, err)
+		bright[i], err = a.svc.Get(m, bctl)
 		berrs = append(berrs, err)
-		contrast[i], err = a.svc.Get(s.Info, cctl)
+		contrast[i], err = a.svc.Get(m, cctl)
 		cerrs = append(cerrs, err)
 	}
 	a.ddcMu.Unlock()
@@ -107,33 +103,27 @@ func (a *App) ListMonitors() ([]MonitorView, error) {
 			labels[id] = m.Labels
 		}
 	}
-	out := make([]MonitorView, 0, len(states))
-	for i, s := range states {
-		id := settings.MonitorID(s.Description)
+	out := make([]MonitorView, 0, len(infos))
+	for i, m := range infos {
+		id := settings.MonitorID(m.Description)
 		v := MonitorView{
-			Index:       s.Index,
+			Index:       m.Index,
 			ID:          id,
-			Description: s.Description,
-			Primary:     s.Primary,
+			Description: m.Description,
+			Primary:     m.Primary,
 			Labels:      labels[id],
 		}
 		if v.Labels == nil {
 			v.Labels = map[string]string{}
 		}
-		if s.Input.Err == nil {
-			v.Input = InputView{OK: true, Name: monitor.InputName(byte(s.Input.Cur)), Raw: fmt.Sprintf("0x%02X", s.Input.Cur)}
+		if ierrs[i] == nil {
+			v.Input = InputView{OK: true, Name: monitor.InputName(byte(input[i].Cur)), Raw: fmt.Sprintf("0x%02X", input[i].Cur)}
 		}
 		if berrs[i] == nil {
 			v.Brightness = LevelView{OK: true, Percent: service.Percent(bright[i].Cur, bright[i].Max)}
 		}
 		if cerrs[i] == nil {
 			v.Contrast = LevelView{OK: true, Percent: service.Percent(contrast[i].Cur, contrast[i].Max)}
-		}
-		if s.Power.Err == nil {
-			switch name := service.PowerName(byte(s.Power.Cur)); name {
-			case "on", "off", "standby":
-				v.Power = PowerView{OK: true, State: name}
-			}
 		}
 		out = append(out, v)
 	}
@@ -202,27 +192,6 @@ func (a *App) setLevel(idx int, name string, pct int) error {
 		_, err = a.svc.Set(m, ctl, strconv.Itoa(pct))
 		return err
 	})
-}
-
-// SetPower sets the power mode: on, off or standby.
-func (a *App) SetPower(idx int, state string) error {
-	switch state {
-	case "on", "off", "standby":
-	default:
-		return fmt.Errorf("invalid power state %q", state)
-	}
-	ctl, err := service.LookupControl("power")
-	if err != nil {
-		return err
-	}
-	a.ddcMu.Lock()
-	defer a.ddcMu.Unlock()
-	m, err := a.svc.ByIndex(idx)
-	if err != nil {
-		return err
-	}
-	_, err = a.svc.Set(m, ctl, state)
-	return err
 }
 
 // SetSkipSwitchConfirm remembers whether the switch confirmation is skipped.
