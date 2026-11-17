@@ -62,7 +62,11 @@ jobs:
         working-directory: gui
         run: |
           wails build -nocolour -o monctl-gui-windows-amd64
-          cp build/bin/monctl-gui-windows-amd64.exe ../dist/
+          # wails uses the -o name verbatim; whether it appends .exe has
+          # changed between versions, so accept either.
+          src=build/bin/monctl-gui-windows-amd64
+          [ -f "$src" ] || src="$src.exe"
+          cp "$src" ../dist/monctl-gui-windows-amd64.exe
       - name: Build GUI + dmg (macOS)
         if: matrix.target_os == 'darwin'
         shell: bash
