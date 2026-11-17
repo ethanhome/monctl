@@ -51,6 +51,12 @@ jobs:
         run: |
           go install github.com/wailsapp/wails/v2/cmd/wails@v2.17.1
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Stub the embedded frontend dist
+        # A fresh checkout has no frontend/dist (it is a build artefact), and
+        # main.go embeds it, so go vet/test need the directory to exist.
+        working-directory: gui
+        shell: bash
+        run: mkdir -p frontend/dist && touch frontend/dist/.gitkeep
       - name: Vet and test
         working-directory: gui
         run: |

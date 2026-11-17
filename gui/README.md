@@ -13,5 +13,8 @@ Node, and Xcode CLT on macOS.
     wails dev          # hot-reload window
     wails build        # -> build/bin/monctl.app (macOS) / monctl.exe (Windows)
 
+`go vet`/`go test` only work once `frontend/dist` exists (it is embedded by
+`main.go`), i.e. after a `wails build` or `npm run build` in `frontend/`.
+
 Bindings in `frontend/wailsjs/` are generated; regenerate with
 `wails generate module` after changing exported `App` methods.
