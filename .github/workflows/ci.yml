@@ -69,7 +69,8 @@ jobs:
     # CLI and GUI share one job on purpose: GitHub's arm64 macOS runners are a
     # small pool and jobs can sit queued until GitHub cancels them (~15 min
     # observed). One runner per run instead of two halves that exposure.
-    runs-on: macos-15
+    # macos-14 is a separate (older, often less congested) arm64 image.
+    runs-on: macos-14
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
