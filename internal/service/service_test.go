@@ -172,6 +172,20 @@ func TestTargets(t *testing.T) {
 	}
 }
 
+func TestByIndexIncludesZero(t *testing.T) {
+	s := NewWithController(newFake(50))
+	m, err := s.ByIndex(0)
+	if err != nil || m.Index != 0 {
+		t.Fatalf("index 0 must resolve to a single monitor, got %+v, %v", m, err)
+	}
+	if m, err := s.ByIndex(1); err != nil || m.Index != 1 {
+		t.Fatalf("index 1: %+v, %v", m, err)
+	}
+	if _, err := s.ByIndex(9); err == nil {
+		t.Error("missing index must fail")
+	}
+}
+
 func TestParseHexOrDec(t *testing.T) {
 	cases := []struct {
 		in      string

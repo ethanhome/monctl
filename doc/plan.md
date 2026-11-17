@@ -92,7 +92,7 @@
 
 ---
 
-## 步骤 5:切换输入源 `[ ]`
+## 步骤 5:切换输入源 `[~]`(已实现,待审核)
 
 **任务**
 - 暴露 `SetInput(idx, name)`、`SetSkipSwitchConfirm(bool)`。

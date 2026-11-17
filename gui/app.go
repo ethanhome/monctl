@@ -86,6 +86,32 @@ func (a *App) ListMonitors() ([]MonitorView, error) {
 	return out, nil
 }
 
+// SetInput switches monitor idx to input (dp1, hdmi1, 0x1B, ...). The UI
+// sends this after the user confirms; nothing is retried.
+func (a *App) SetInput(idx int, input string) error {
+	ctl, err := service.LookupControl("input")
+	if err != nil {
+		return err
+	}
+	a.ddcMu.Lock()
+	defer a.ddcMu.Unlock()
+	m, err := a.svc.ByIndex(idx)
+	if err != nil {
+		return err
+	}
+	_, err = a.svc.Set(m, ctl, input)
+	return err
+}
+
+// SetSkipSwitchConfirm remembers whether the switch confirmation is skipped.
+func (a *App) SetSkipSwitchConfirm(skip bool) error {
+	st, err := a.settingsStore()
+	if err != nil {
+		return err
+	}
+	return st.SetSkipSwitchConfirm(skip)
+}
+
 // GetSettings returns the persisted preferences.
 func (a *App) GetSettings() (settings.Settings, error) {
 	st, err := a.settingsStore()

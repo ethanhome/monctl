@@ -78,6 +78,21 @@ func (s *Service) Targets(mIdx int) ([]monitor.Info, error) {
 	return monitor.ResolveTargets(s.ctrl, sel)
 }
 
+// ByIndex returns the monitor with the given index, 0 included. Unlike
+// Targets (the CLI's "-m" selector), index 0 does not mean "all".
+func (s *Service) ByIndex(idx int) (monitor.Info, error) {
+	all, err := s.ctrl.List()
+	if err != nil {
+		return monitor.Info{}, err
+	}
+	for _, m := range all {
+		if m.Index == idx {
+			return m, nil
+		}
+	}
+	return monitor.Info{}, fmt.Errorf("no monitor with index %d", idx)
+}
+
 // Get reads a control's current value and panel max.
 func (s *Service) Get(m monitor.Info, c Control) (Reading, error) {
 	return s.Raw(m, c.Code)

@@ -13,3 +13,11 @@ export function ListMonitors() {
 export function SaveLabel(arg1, arg2, arg3) {
   return window['go']['main']['App']['SaveLabel'](arg1, arg2, arg3);
 }
+
+export function SetInput(arg1, arg2) {
+  return window['go']['main']['App']['SetInput'](arg1, arg2);
+}
+
+export function SetSkipSwitchConfirm(arg1) {
+  return window['go']['main']['App']['SetSkipSwitchConfirm'](arg1);
+}

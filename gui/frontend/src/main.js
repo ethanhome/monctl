@@ -1,5 +1,5 @@
 import './style.css';
-import { ListMonitors, GetSettings, SaveLabel } from '../wailsjs/go/main/App';
+import { ListMonitors, GetSettings, SaveLabel, SetInput, SetSkipSwitchConfirm } from '../wailsjs/go/main/App';
 
 // Fixed input-source list (MCCS names from monitor/vcp.go). It is generic:
 // the panel may not actually have every port, which the hint under the list
@@ -19,6 +19,8 @@ const state = {
     error: '',
     expanded: new Set(), // monitor IDs whose "更多" section is open (not persisted)
     busy: false,
+    skipSwitchConfirm: false,
+    switching: false,
 };
 
 const $ = (sel) => document.querySelector(sel);
@@ -56,9 +58,10 @@ async function refresh() {
         ]);
         state.monitors = monitors || [];
         state.error = '';
-        if (settings && settings.monitors) {
+        if (settings) {
+            state.skipSwitchConfirm = !!settings.skipSwitchConfirm;
             for (const m of state.monitors) {
-                const saved = settings.monitors[m.id];
+                const saved = settings.monitors?.[m.id];
                 if (saved && saved.labels) m.labels = saved.labels;
             }
         }
@@ -151,8 +154,7 @@ function row(m, key, inputLabel, labelValue, isCurrent) {
         r.append(el('span', 'state', '当前'));
     } else {
         const btn = el('button', '', '切换');
-        btn.disabled = true;
-        btn.title = '切换功能将在下一步接入';
+        btn.onclick = () => switchInput(m, key, inputLabel);
         r.append(btn);
     }
     return r;
@@ -204,6 +206,77 @@ function editLabel(span, m, key) {
         else if (e.key === 'Escape') finish(false);
     });
     input.addEventListener('blur', () => finish(true));
+}
+
+function targetText(inputLabel, label) {
+    return label ? `${inputLabel}（${label}）` : inputLabel;
+}
+
+// askSwitch shows the confirmation dialog and resolves to {ok, skip}.
+function askSwitch(inputLabel, label) {
+    return new Promise((resolve) => {
+        const dlg = el('dialog', 'confirm');
+        dlg.append(el('p', 'confirm-title', `切换到 ${targetText(inputLabel, label)}？`));
+        dlg.append(el('p', 'confirm-desc', '切换后本机将无法控制这台显示器，需要在其他电脑或显示器上切回。'));
+
+        const dont = document.createElement('input');
+        dont.type = 'checkbox';
+        const dontRow = el('label', 'dont-ask');
+        dontRow.append(dont, document.createTextNode('不再提示'));
+        dlg.append(dontRow);
+
+        const actions = el('div', 'confirm-actions');
+        const cancel = el('button', '', '取消');
+        const go = el('button', 'primary', '切换');
+        actions.append(cancel, go);
+        dlg.append(actions);
+
+        let result = { ok: false, skip: false };
+        cancel.onclick = () => dlg.close();
+        go.onclick = () => {
+            result = { ok: true, skip: dont.checked };
+            dlg.close();
+        };
+        dlg.addEventListener('close', () => {
+            dlg.remove();
+            resolve(result);
+        });
+        document.body.append(dlg);
+        dlg.showModal();
+        go.focus();
+    });
+}
+
+// switchInput sends the input change. The UI is deliberately left untouched:
+// the current marker stays on the source we just left, so switching back
+// later shows exactly the state the user left.
+async function switchInput(m, key, inputLabel) {
+    if (state.switching) return;
+    if (!state.skipSwitchConfirm) {
+        const r = await askSwitch(inputLabel, m.labels?.[key]);
+        if (!r.ok) return;
+        if (r.skip) {
+            try {
+                await SetSkipSwitchConfirm(true);
+                state.skipSwitchConfirm = true;
+            } catch (err) {
+                toast(`保存设置失败：${err}`);
+            }
+        }
+    }
+    const target = targetText(inputLabel, m.labels?.[key]);
+    state.switching = true;
+    try {
+        await SetInput(m.index, key);
+        toast(`已发送切换到 ${target}`);
+    } catch (err) {
+        // Most likely the panel already moved to another source; the design
+        // says to say so and change nothing. No retry.
+        console.error('set input:', err);
+        toast('无法与显示器通信，可能已切换到其他输入源');
+    } finally {
+        state.switching = false;
+    }
 }
 
 $('#refresh').onclick = refresh;

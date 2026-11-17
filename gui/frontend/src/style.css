@@ -270,3 +270,55 @@ main {
     display: block;
     opacity: 0;
 }
+
+dialog.confirm {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--bg);
+    color: var(--fg);
+    padding: 18px 18px 14px;
+    width: min(340px, 86vw);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, .28);
+}
+
+dialog.confirm::backdrop {
+    background: rgba(0, 0, 0, .32);
+}
+
+.confirm-title {
+    margin: 0 0 6px;
+    font-weight: 600;
+}
+
+.confirm-desc {
+    margin: 0 0 14px;
+    color: var(--muted);
+    font-size: 13px;
+}
+
+.dont-ask {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--muted);
+    cursor: pointer;
+    margin-bottom: 16px;
+}
+
+.confirm-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+button.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+}
+
+button.primary:hover:not(:disabled) {
+    background: var(--accent);
+    filter: brightness(1.08);
+}
