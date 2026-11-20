@@ -393,60 +393,68 @@ async function switchInput(m, key, inputLabel) {
     }
 }
 
-// renderUpdate shows or hides the release banner. It is deliberately
-// independent of the monitor state: an update is worth showing even when no
+// renderUpdate drives the footer's update button. It is deliberately
+// independent of the monitor state: an update is worth offering even when no
 // monitor could be found. state is "working"/"done"/"failed" during and after
 // an in-app install, empty while only offering the release.
 function renderUpdate(view) {
-    const banner = $('#update-banner');
-    if (!view) {
-        banner.hidden = true;
-        banner.replaceChildren();
-        return;
-    }
-    // "Checking" makes no sense while an install owns the updater.
-    $('#check-updates').disabled = view.state === 'working';
-    const latest = view.latest || '';
+    const btn = $('#update');
+    const latest = view?.latest || '';
+
+    // Start from the resting state; each branch below opts back in.
+    setUpdateAction(btn, '更新', null);
+    announceUpdate('');
+
+    // Re-checking makes no sense while an install owns the updater.
+    $('#check-updates').disabled = view?.state === 'working';
+    if (!view) return;
+
     switch (view.state) {
     case 'working': {
-        const btn = el('button', 'primary', '更新中…');
-        btn.disabled = true;
-        const text = view.step === 'install'
-            ? `正在校验并安装 ${latest}…`
-            : `正在下载 ${latest}…`;
-        banner.replaceChildren(el('span', 'update-text', text), btn);
-        banner.hidden = false;
+        const step = view.step === 'install' ? '安装' : '下载';
+        setUpdateAction(btn, `${step}中…`, null);
+        announceUpdate(`正在${step}…`);
         return;
     }
-    case 'done': {
-        const later = el('button', '', '稍后');
-        later.onclick = () => { banner.hidden = true; };
-        const restart = el('button', 'primary', '立即重启');
-        restart.onclick = () => RestartApp().catch((err) => toast(`重启失败：${err}`));
-        banner.replaceChildren(el('span', 'update-text', `已更新到 ${latest}，重启生效`), later, restart);
-        banner.hidden = false;
+    case 'done':
+        setUpdateAction(btn, '重启以完成更新', restartAfterUpdate, 'primary', `已更新到 ${latest}`);
+        announceUpdate(`已更新到 ${latest}，重启生效`);
         return;
-    }
     case 'failed': {
-        const open = el('button', 'primary', '打开下载页');
-        open.onclick = () => OpenDownloadPage().catch((err) => toast(`无法打开下载页：${err}`));
-        const detail = view.error ? `：${view.error}` : '';
-        const text = el('span', 'update-text', failureText(view.reason) + detail);
-        if (view.error) text.title = view.error;
-        banner.replaceChildren(text, open);
-        banner.hidden = false;
+        const msg = failureMessage(view);
+        setUpdateAction(btn, '打开下载页', openDownloadPage, 'primary', msg);
+        announceUpdate(msg);
         return;
     }
     }
-    if (!view.available) {
-        banner.hidden = true;
-        banner.replaceChildren();
-        return;
-    }
-    const updateBtn = el('button', 'primary', '更新');
-    updateBtn.onclick = startUpdate;
-    banner.replaceChildren(el('span', 'update-text', `${latest} 可用`), updateBtn);
-    banner.hidden = false;
+    if (!view.available) return;
+    setUpdateAction(btn, '更新', startUpdate, 'primary', `更新到 ${latest}`);
+    announceUpdate(`${latest} 可用`);
+}
+
+// announceUpdate feeds the footer's visually hidden live region so screen
+// readers hear the same state changes the button colour conveys.
+function announceUpdate(text) {
+    const region = $('#update-status');
+    if (region.textContent !== text) region.textContent = text;
+}
+
+// setUpdateAction points the footer button at one action. A null handler
+// disables it; the default className is the greyed-out ghost look.
+function setUpdateAction(btn, text, handler, className = 'ghost', title = '') {
+    btn.textContent = text;
+    btn.disabled = !handler;
+    btn.onclick = handler;
+    btn.className = className;
+    btn.title = title;
+}
+
+function restartAfterUpdate() {
+    RestartApp().catch((err) => toast(`重启失败：${err}`));
+}
+
+function openDownloadPage() {
+    OpenDownloadPage().catch((err) => toast(`无法打开下载页：${err}`));
 }
 
 function failureText(reason) {
@@ -462,11 +470,29 @@ function failureText(reason) {
     }
 }
 
+// failureMessage is the localized reason plus the raw backend detail, which
+// matters when reason is "other" (checksum mismatch, network, ...).
+function failureMessage(view) {
+    const detail = view?.error ? `：${view.error}` : '';
+    return failureText(view?.reason) + detail;
+}
+
 async function startUpdate() {
+    const btn = $('#update');
+    // Close the gap before the backend's "working" event arrives, so a second
+    // click cannot start a competing install.
+    setUpdateAction(btn, '更新中…', null);
     try {
-        renderUpdate(await StartUpdate());
+        const view = await StartUpdate();
+        renderUpdate(view);
+        if (view.state === 'failed') toast(failureMessage(view));
     } catch (err) {
         toast(`更新失败：${err}`);
+        try {
+            renderUpdate(await GetUpdateState());
+        } catch (stateErr) {
+            console.warn('update state:', stateErr);
+        }
     }
 }
 

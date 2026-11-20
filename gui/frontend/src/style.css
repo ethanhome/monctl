@@ -359,30 +359,16 @@ button.primary:hover:not(:disabled) {
     font-variant-numeric: tabular-nums;
 }
 
-.update-banner {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin: 0 18px 6px;
-    padding: 8px 10px;
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    background: var(--card);
-    font-size: 13px;
-}
-
-/* display:flex above would otherwise override the hidden attribute and leave
-   an empty bar on every launch. */
-.update-banner[hidden] {
-    display: none;
-}
-
-.update-banner .update-text {
-    flex: 1;
-}
-
-.update-banner button {
-    padding: 3px 12px;
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
 }
 
 footer {
