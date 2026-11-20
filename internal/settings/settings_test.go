@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -130,6 +131,60 @@ func TestSetLabelRequiresKeys(t *testing.T) {
 	}
 }
 
+func TestRecordInputSwitchMostRecentFirst(t *testing.T) {
+	dir := t.TempDir()
+	st := open(t, dir)
+	for _, in := range []string{"dp1", "hdmi2", "dp1"} {
+		if err := st.RecordInputSwitch("m", in); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := []string{"dp1", "hdmi2"}
+	if got := st.RecentInputs("m"); !slices.Equal(got, want) {
+		t.Errorf("in memory: got %v, want %v", got, want)
+	}
+	if got := open(t, dir).RecentInputs("m"); !slices.Equal(got, want) {
+		t.Errorf("persisted: got %v, want %v", got, want)
+	}
+}
+
+func TestRecordInputSwitchCapsHistory(t *testing.T) {
+	st := open(t, t.TempDir())
+	for i := 0; i < maxRecent+3; i++ {
+		if err := st.RecordInputSwitch("m", fmt.Sprintf("in%d", i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := st.RecentInputs("m")
+	if len(got) != maxRecent {
+		t.Errorf("kept %d entries, want %d", len(got), maxRecent)
+	}
+	if got[0] != fmt.Sprintf("in%d", maxRecent+2) {
+		t.Errorf("most recent entry is %q", got[0])
+	}
+}
+
+func TestRecentKeptWhenLabelsRemoved(t *testing.T) {
+	dir := t.TempDir()
+	st := open(t, dir)
+	if err := st.SetLabel("m", "dp1", "Mac"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RecordInputSwitch("m", "hdmi2"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetLabel("m", "dp1", ""); err != nil {
+		t.Fatal(err)
+	}
+	re := open(t, dir)
+	if got := re.RecentInputs("m"); !slices.Equal(got, []string{"hdmi2"}) {
+		t.Errorf("recent history lost with the label: %v", got)
+	}
+	if got := re.Label("m", "dp1"); got != "" {
+		t.Errorf("label should be gone, got %q", got)
+	}
+}
+
 func TestConcurrentWritesDoNotLoseUpdates(t *testing.T) {
 	dir := t.TempDir()
 	st := open(t, dir)
@@ -198,7 +253,8 @@ func TestLegacyConfigUntouched(t *testing.T) {
 	}
 }
 
-// No behavioural state such as a previous input source may be persisted.
+// The current/previous input source is never persisted; only the order in
+// which this app switched inputs is.
 func TestNoBehaviouralStatePersisted(t *testing.T) {
 	dir := t.TempDir()
 	st := open(t, dir)

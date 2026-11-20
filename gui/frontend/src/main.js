@@ -87,11 +87,27 @@ async function refresh() {
 function render() {
     const root = content();
     root.replaceChildren();
-    if (state.monitors.length === 0) {
+    const [first, ...others] = state.monitors;
+    // The first monitor's name takes the header spot; its section then starts
+    // directly with the input list. Additional monitors keep their own title.
+    setTitle(first);
+    if (!first) {
         root.append(emptyView());
         return;
     }
-    for (const m of state.monitors) root.append(monitorView(m));
+    root.append(monitorView(first, false));
+    for (const m of others) root.append(monitorView(m, true));
+}
+
+function setTitle(m) {
+    const h = $('#title');
+    h.replaceChildren();
+    if (!m) {
+        h.textContent = 'monctl';
+        return;
+    }
+    h.append(document.createTextNode(m.description || `显示器 ${m.index}`));
+    h.append(document.createTextNode(' '), el('span', 'idx', `(${m.index})`));
 }
 
 function emptyView() {
@@ -114,23 +130,30 @@ function inputKey(m) {
     return m.input.ok ? (m.input.name || m.input.raw) : '';
 }
 
-function monitorView(m) {
+function monitorView(m, showTitle = true) {
     const section = el('section', 'monitor');
-    const h2 = el('h2', '', m.description || `显示器 ${m.index}`);
-    h2.append(document.createTextNode(' '), el('span', 'idx', `(${m.index})`));
-    section.append(h2, el('h3', '', '输入源'));
+    if (showTitle) {
+        const h2 = el('h2', '', m.description || `显示器 ${m.index}`);
+        h2.append(document.createTextNode(' '), el('span', 'idx', `(${m.index})`));
+        section.append(h2);
+    }
+    section.append(el('h3', '', '输入源'));
 
     const labels = m.labels || {};
     const current = inputKey(m);
     const rows = el('div', 'rows');
 
-    // Current source first, then labeled ports, then the rest behind "更多".
+    // Current source first, then the rest by most recent switch, with labeled
+    // ports shown and the remainder folded behind "更多". Unranked ports keep
+    // the fixed list order (sort is stable).
+    const rank = new Map((m.recent || []).map((name, i) => [name, i]));
+    const rankOf = (name) => (rank.has(name) ? rank.get(name) : rank.size);
     if (m.input.ok) {
         rows.append(row(m, current, current === m.input.name ? inputText(current) : m.input.raw, labels[current], true));
     }
-    const labeled = INPUTS.filter((i) => i.name !== current && labels[i.name]);
+    const labeled = INPUTS.filter((i) => i.name !== current && labels[i.name]).sort((a, b) => rankOf(a.name) - rankOf(b.name));
     for (const i of labeled) rows.append(row(m, i.name, i.label, labels[i.name], false));
-    const rest = INPUTS.filter((i) => i.name !== current && !labels[i.name]);
+    const rest = INPUTS.filter((i) => i.name !== current && !labels[i.name]).sort((a, b) => rankOf(a.name) - rankOf(b.name));
     if (rest.length) rows.append(moreRow(m, rest));
 
     if (state.expanded.has(m.id)) {

@@ -39,6 +39,7 @@ export namespace main {
 	    brightness: LevelView;
 	    contrast: LevelView;
 	    labels: Record<string, string>;
+	    recent: string[];
 	
 	    static createFrom(source: any = {}) {
 	        return new MonitorView(source);
@@ -54,6 +55,7 @@ export namespace main {
 	        this.brightness = this.convertValues(source["brightness"], LevelView);
 	        this.contrast = this.convertValues(source["contrast"], LevelView);
 	        this.labels = source["labels"];
+	        this.recent = source["recent"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -81,6 +83,7 @@ export namespace settings {
 	
 	export class Monitor {
 	    labels?: Record<string, string>;
+	    recent?: string[];
 	
 	    static createFrom(source: any = {}) {
 	        return new Monitor(source);
@@ -89,6 +92,7 @@ export namespace settings {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.labels = source["labels"];
+	        this.recent = source["recent"];
 	    }
 	}
 	export class Settings {

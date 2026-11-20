@@ -1,8 +1,10 @@
 // Package settings persists GUI-only preferences: per-monitor input-source
-// labels and whether the input-switch confirmation prompt is skipped.
+// labels, recent switch order, and whether the input-switch confirmation
+// prompt is skipped.
 //
-// It is deliberately separate from the removed hotkey config.json and holds
-// no behavioural state such as a previous input source.
+// It is deliberately separate from the removed hotkey config.json. The
+// current input source is always read from the monitor itself; only the
+// order in which this app switched inputs is stored.
 package settings
 
 import (
@@ -26,7 +28,13 @@ type Settings struct {
 type Monitor struct {
 	// Labels maps input-source names ("dp1", "hdmi2") to user-chosen names.
 	Labels map[string]string `json:"labels,omitempty"`
+	// Recent lists input-source names most recently switched to first.
+	Recent []string `json:"recent,omitempty"`
 }
+
+// maxRecent bounds the stored switch history; the GUI has seven fixed
+// sources, so this only guards against hand-edited settings.
+const maxRecent = 8
 
 // MonitorID derives the settings key for a monitor. monitor.Info has no
 // serial number, so the EDID description (model) is the only stable
@@ -92,6 +100,14 @@ func (st *Store) Label(monitorID, input string) string {
 	return st.s.Monitors[monitorID].Labels[input]
 }
 
+// RecentInputs returns monitorID's inputs with the most recently switched
+// first. The slice is a copy the caller may keep.
+func (st *Store) RecentInputs(monitorID string) []string {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	return append([]string(nil), st.s.Monitors[monitorID].Recent...)
+}
+
 // SkipSwitchConfirm reports whether the switch confirmation prompt is off.
 func (st *Store) SkipSwitchConfirm() bool {
 	st.mu.Lock()
@@ -100,7 +116,8 @@ func (st *Store) SkipSwitchConfirm() bool {
 }
 
 // SetLabel stores name for monitorID's input; an empty name removes the
-// label, and a monitor left without labels is dropped from the file.
+// label, and a monitor left with neither labels nor switch history is
+// dropped from the file.
 func (st *Store) SetLabel(monitorID, input, name string) error {
 	if monitorID == "" || input == "" {
 		return errors.New("settings: monitor and input are required")
@@ -116,11 +133,34 @@ func (st *Store) SetLabel(monitorID, input, name string) error {
 		} else {
 			m.Labels[input] = name
 		}
-		if len(m.Labels) == 0 {
+		if len(m.Labels) == 0 && len(m.Recent) == 0 {
 			delete(s.Monitors, monitorID)
 		} else {
 			s.Monitors[monitorID] = m
 		}
+	})
+}
+
+// RecordInputSwitch moves input to the front of monitorID's recent list,
+// dropping any older occurrence so the list stays deduplicated.
+func (st *Store) RecordInputSwitch(monitorID, input string) error {
+	if monitorID == "" || input == "" {
+		return errors.New("settings: monitor and input are required")
+	}
+	return st.update(func(s *Settings) {
+		m := s.Monitors[monitorID]
+		next := make([]string, 0, len(m.Recent)+1)
+		next = append(next, input)
+		for _, name := range m.Recent {
+			if name != input {
+				next = append(next, name)
+			}
+		}
+		if len(next) > maxRecent {
+			next = next[:maxRecent]
+		}
+		m.Recent = next
+		s.Monitors[monitorID] = m
 	})
 }
 
@@ -184,7 +224,7 @@ func (s Settings) clone() Settings {
 		for k, v := range m.Labels {
 			labels[k] = v
 		}
-		out.Monitors[id] = Monitor{Labels: labels}
+		out.Monitors[id] = Monitor{Labels: labels, Recent: append([]string(nil), m.Recent...)}
 	}
 	return out
 }

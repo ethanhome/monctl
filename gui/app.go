@@ -68,6 +68,9 @@ type MonitorView struct {
 	Brightness  LevelView         `json:"brightness"`
 	Contrast    LevelView         `json:"contrast"`
 	Labels      map[string]string `json:"labels"`
+	// Recent lists input keys most recently switched to first. The UI keeps
+	// the current source on top and orders the rest by this list.
+	Recent []string `json:"recent"`
 }
 
 // ListMonitors scans monitors with their current input source and labels.
@@ -96,22 +99,21 @@ func (a *App) ListMonitors() ([]MonitorView, error) {
 		cerrs = append(cerrs, err)
 	}
 	a.ddcMu.Unlock()
-	var labels map[string]map[string]string
+	var prefs map[string]settings.Monitor
 	if st, serr := a.settingsStore(); serr == nil {
-		labels = map[string]map[string]string{}
-		for id, m := range st.Snapshot().Monitors {
-			labels[id] = m.Labels
-		}
+		prefs = st.Snapshot().Monitors
 	}
 	out := make([]MonitorView, 0, len(infos))
 	for i, m := range infos {
 		id := settings.MonitorID(m.Description)
+		pref := prefs[id]
 		v := MonitorView{
 			Index:       m.Index,
 			ID:          id,
 			Description: m.Description,
 			Primary:     m.Primary,
-			Labels:      labels[id],
+			Labels:      pref.Labels,
+			Recent:      pref.Recent,
 		}
 		if v.Labels == nil {
 			v.Labels = map[string]string{}
@@ -138,13 +140,35 @@ func (a *App) SetInput(idx int, input string) error {
 		return err
 	}
 	a.ddcMu.Lock()
-	defer a.ddcMu.Unlock()
 	m, err := a.svc.ByIndex(idx)
 	if err != nil {
+		a.ddcMu.Unlock()
 		return err
 	}
 	_, err = a.svc.Set(m, ctl, input)
-	return err
+	a.ddcMu.Unlock()
+	if err != nil {
+		return err
+	}
+	// Remember the target so the list can put recently used sources first.
+	// Recording is best-effort: the switch itself already succeeded.
+	if st, serr := a.settingsStore(); serr == nil {
+		_ = st.RecordInputSwitch(settings.MonitorID(m.Description), inputKey(input))
+	}
+	return nil
+}
+
+// inputKey normalises a set-input value ("hdmi2", "0x12") to the key the UI
+// uses for that row: the friendly name, or raw hex when it is unknown.
+func inputKey(v string) string {
+	b, err := monitor.ParseVCPValue(v)
+	if err != nil {
+		return v
+	}
+	if name := monitor.InputName(b); name != "" {
+		return name
+	}
+	return fmt.Sprintf("0x%02X", b)
 }
 
 // applyLatest runs fn under the DDC lock unless a newer request with the

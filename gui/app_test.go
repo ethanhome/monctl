@@ -2,9 +2,12 @@ package main
 
 import (
 	"errors"
+	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/bacnh85/monctl/internal/service"
+	"github.com/bacnh85/monctl/internal/settings"
 	"github.com/bacnh85/monctl/monitor"
 )
 
@@ -15,6 +18,7 @@ type fakeCtrl struct {
 	writes map[byte]byte
 	reads  map[byte]int
 	getErr error
+	setErr error
 }
 
 func newFake() *fakeCtrl {
@@ -39,12 +43,29 @@ func (f *fakeCtrl) GetVCP(_ monitor.Info, code byte) (int, int, error) {
 	}
 	return f.cur[code], f.max[code], nil
 }
-func (f *fakeCtrl) SetVCP(_ monitor.Info, code, v byte) error { f.writes[code] = v; return nil }
+func (f *fakeCtrl) SetVCP(_ monitor.Info, code, v byte) error {
+	if f.setErr != nil {
+		return f.setErr
+	}
+	f.writes[code] = v
+	return nil
+}
 
-func newTestApp(f *fakeCtrl) *App { return newApp(service.NewWithController(f)) }
+// newTestApp points the app at a throwaway settings file so tests never
+// touch the user's real config.
+func newTestApp(t *testing.T, f *fakeCtrl) *App {
+	t.Helper()
+	a := newApp(service.NewWithController(f))
+	st, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.st = st
+	return a
+}
 
 func TestRunIfLatestDropsStaleGeneration(t *testing.T) {
-	a := newTestApp(newFake())
+	a := newTestApp(t, newFake())
 	const key = "0:brightness"
 	a.seqMu.Lock()
 	a.seq[key]++
@@ -71,7 +92,7 @@ func TestRunIfLatestDropsStaleGeneration(t *testing.T) {
 
 func TestSetBrightnessScalesToPanelMax(t *testing.T) {
 	f := newFake()
-	a := newTestApp(f)
+	a := newTestApp(t, f)
 	if err := a.SetBrightness(0, 60); err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +103,7 @@ func TestSetBrightnessScalesToPanelMax(t *testing.T) {
 
 func TestSetLevelRejectsOutOfRange(t *testing.T) {
 	f := newFake()
-	a := newTestApp(f)
+	a := newTestApp(t, f)
 	for _, pct := range []int{-1, 101} {
 		if err := a.SetBrightness(0, pct); err == nil {
 			t.Errorf("%d: want error", pct)
@@ -99,7 +120,7 @@ func TestSetLevelRejectsOutOfRange(t *testing.T) {
 // Monitor index 0 is a real monitor; it must not mean "all".
 func TestSetInputTargetsIndexZero(t *testing.T) {
 	f := newFake()
-	if err := newTestApp(f).SetInput(0, "hdmi2"); err != nil {
+	if err := newTestApp(t, f).SetInput(0, "hdmi2"); err != nil {
 		t.Fatal(err)
 	}
 	if got := f.writes[monitor.VCPInput]; got != 0x12 {
@@ -109,7 +130,7 @@ func TestSetInputTargetsIndexZero(t *testing.T) {
 
 func TestListMonitorsMapsReadings(t *testing.T) {
 	f := newFake()
-	got, err := newTestApp(f).ListMonitors()
+	got, err := newTestApp(t, f).ListMonitors()
 	if err != nil || len(got) != 2 {
 		t.Fatalf("got %+v, %v", got, err)
 	}
@@ -135,7 +156,7 @@ func TestListMonitorsMapsReadings(t *testing.T) {
 func TestListMonitorsMarksUnreadableControls(t *testing.T) {
 	f := newFake()
 	f.getErr = errors.New("ddc down")
-	got, err := newTestApp(f).ListMonitors()
+	got, err := newTestApp(t, f).ListMonitors()
 	if err != nil || len(got) != 2 {
 		t.Fatalf("a DDC read failure must not fail the whole listing: %v", err)
 	}
@@ -143,5 +164,52 @@ func TestListMonitorsMarksUnreadableControls(t *testing.T) {
 		if m.Input.OK || m.Brightness.OK || m.Contrast.OK {
 			t.Errorf("all controls should be unknown: %+v", m)
 		}
+	}
+}
+
+func TestSetInputRecordsRecentOrder(t *testing.T) {
+	f := newFake()
+	a := newTestApp(t, f)
+	for _, in := range []string{"hdmi2", "dp1", "hdmi2"} {
+		if err := a.SetInput(0, in); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := []string{"hdmi2", "dp1"}
+	if got := a.st.RecentInputs("Test Panel"); !slices.Equal(got, want) {
+		t.Errorf("settings recent: got %v, want %v", got, want)
+	}
+	got, err := a.ListMonitors()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(got[0].Recent, want) {
+		t.Errorf("view recent: got %v, want %v", got[0].Recent, want)
+	}
+	if len(got[1].Recent) != 0 {
+		t.Errorf("other monitor must not gain history: %v", got[1].Recent)
+	}
+}
+
+// Raw VCP values must normalise to the same key the UI uses for the row.
+func TestSetInputRecordsNormalisedKey(t *testing.T) {
+	a := newTestApp(t, newFake())
+	if err := a.SetInput(0, "0x12"); err != nil {
+		t.Fatal(err)
+	}
+	if got := a.st.RecentInputs("Test Panel"); !slices.Equal(got, []string{"hdmi2"}) {
+		t.Errorf("got %v, want [hdmi2]", got)
+	}
+}
+
+func TestSetInputFailureDoesNotRecord(t *testing.T) {
+	f := newFake()
+	f.setErr = errors.New("ddc down")
+	a := newTestApp(t, f)
+	if err := a.SetInput(0, "hdmi2"); err == nil {
+		t.Fatal("want error")
+	}
+	if got := a.st.RecentInputs("Test Panel"); len(got) != 0 {
+		t.Errorf("failed switch must not be recorded: %v", got)
 	}
 }

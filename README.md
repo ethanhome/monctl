@@ -35,12 +35,13 @@ binary; put it on the internal disk (e.g. `~/bin/monctl`).
 
 ## GUI
 
-The window lists every detected monitor. For each monitor:
+The window lists every detected monitor; its title bar shows the app version.
+For each monitor:
 
 - **Input sources** are listed under a heading, current source first. That
   source is marked as current and is not clickable — this computer *is*
   that source, so switching to it is meaningless. Every other source has a
-  switch button.
+  switch button; sources you switched to recently come first.
 - Clicking a switch button asks for confirmation; tick "don't ask again" to
   switch without the prompt from then on.
 - **After switching, the window deliberately does not change.** The current
