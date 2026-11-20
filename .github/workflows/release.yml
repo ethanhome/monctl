@@ -19,7 +19,7 @@ jobs:
           - os: windows-latest
             target_os: windows
             target_arch: amd64
-          - os: macos-15
+          - os: macos-26
             target_os: darwin
             target_arch: arm64
     runs-on: ${{ matrix.os }}
