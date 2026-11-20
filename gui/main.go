@@ -2,6 +2,7 @@ package main
 
 import (
 	"embed"
+	"fmt"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -11,10 +12,14 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
+// version is injected at release time:
+// -ldflags "-X main.version=v1.2.3".
+var version = "dev"
+
 func main() {
 	app := NewApp()
 	err := wails.Run(&options.App{
-		Title:     "monctl",
+		Title:     fmt.Sprintf("monctl %s", version),
 		Width:     440,
 		Height:    680,
 		MinWidth:  380,

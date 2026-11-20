@@ -61,7 +61,7 @@ jobs:
         shell: bash
         working-directory: gui
         run: |
-          wails build -nocolour -o monctl-gui-windows-amd64
+          wails build -nocolour -ldflags "-X main.version=${GITHUB_REF_NAME}" -o monctl-gui-windows-amd64
           # wails uses the -o name verbatim; whether it appends .exe has
           # changed between versions, so accept either.
           src=build/bin/monctl-gui-windows-amd64
@@ -72,7 +72,7 @@ jobs:
         shell: bash
         working-directory: gui
         run: |
-          wails build -nocolour
+          wails build -nocolour -ldflags "-X main.version=${GITHUB_REF_NAME}"
           ../tools/app/mkdmg.sh build/bin ../dist/monctl-macos-arm64.dmg monctl
       - uses: actions/upload-artifact@v7
         with:
