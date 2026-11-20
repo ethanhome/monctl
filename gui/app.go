@@ -4,13 +4,21 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/bacnh85/monctl/internal/service"
 	"github.com/bacnh85/monctl/internal/settings"
+	"github.com/bacnh85/monctl/internal/update"
 	"github.com/bacnh85/monctl/monitor"
+	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // App is the Wails-bound backend.
@@ -29,16 +37,50 @@ type App struct {
 
 	mu sync.Mutex
 	st *settings.Store
+
+	update *updateController
 }
 
 // NewApp creates the app.
 func NewApp() *App { return newApp(service.New()) }
 
 func newApp(svc *service.Service) *App {
-	return &App{svc: svc, seq: map[string]uint64{}}
+	return &App{
+		svc: svc,
+		seq: map[string]uint64{},
+		update: newUpdateController(version, update.Platform{OS: runtime.GOOS, Arch: runtime.GOARCH},
+			&update.GitHubSource{}, &update.HTTPFetcher{}, nil),
+	}
 }
 
-func (a *App) startup(ctx context.Context) { a.ctx = ctx }
+func (a *App) startup(ctx context.Context) {
+	a.ctx = ctx
+	if a.update == nil {
+		return
+	}
+	// Keep the previous version around for a day, then clean it up. This is
+	// best-effort: running from a disk image simply cannot have one.
+	if target := installTarget(); target != "" {
+		update.CleanupStaleOld(target, 24*time.Hour)
+	}
+	if st, err := a.settingsStore(); err == nil {
+		a.update.setStore(st)
+	} else {
+		wruntime.LogError(ctx, "settings: "+err.Error())
+	}
+	a.update.setEmit(func(v UpdateView) { wruntime.EventsEmit(ctx, "update:state", v) })
+	a.update.setRestart(a.relaunch)
+	go func() {
+		timer := time.NewTimer(autoCheckDelay)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			return
+		}
+		_, _ = a.update.Check(ctx, false)
+	}()
+}
 
 // InputView is a monitor's current input source.
 type InputView struct {
@@ -243,6 +285,134 @@ func (a *App) SaveLabel(monitorID, input, name string) error {
 		return err
 	}
 	return st.SetLabel(monitorID, input, name)
+}
+
+// AppVersion returns the running version shown in the footer.
+func (a *App) AppVersion() string { return version }
+
+// GetUpdateState returns the last update check result.
+func (a *App) GetUpdateState() UpdateView {
+	if a.update == nil {
+		return UpdateView{}
+	}
+	return a.update.View()
+}
+
+// CheckForUpdates runs a manual check, bypassing the 24-hour throttle.
+func (a *App) CheckForUpdates() (UpdateView, error) {
+	if a.update == nil {
+		return UpdateView{}, errors.New("update checker unavailable")
+	}
+	if a.ctx == nil {
+		return UpdateView{}, errors.New("app is not ready")
+	}
+	return a.update.Check(a.ctx, true)
+}
+
+// StartUpdate downloads, verifies and replaces the running app bundle. The
+// returned view tells the UI whether it ended in "done" or "failed"; the
+// progress events arrive through "update:state".
+func (a *App) StartUpdate() (UpdateView, error) {
+	if a.update == nil {
+		return UpdateView{}, errors.New("update checker unavailable")
+	}
+	if a.ctx == nil {
+		return UpdateView{}, errors.New("app is not ready")
+	}
+	return a.update.StartUpgrade(a.ctx)
+}
+
+// RestartApp relaunches the updated app and quits the current process.
+func (a *App) RestartApp() error {
+	if a.update == nil {
+		return errors.New("update checker unavailable")
+	}
+	return a.update.Restart()
+}
+
+// relaunch starts the installed version and quits this process. On macOS the
+// bundle is opened through LaunchServices so the new instance is registered
+// normally; on Windows the executable is started directly.
+func (a *App) relaunch() error {
+	if a.ctx == nil {
+		return errors.New("app is not ready")
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("locate executable: %w", err)
+	}
+	resolved, err := filepath.EvalSymlinks(exe)
+	if err != nil {
+		return fmt.Errorf("locate executable: %w", err)
+	}
+	switch runtime.GOOS {
+	case "darwin":
+		bundle, err := update.LocateBundle(resolved)
+		if err != nil {
+			return err
+		}
+		if err := exec.Command("/usr/bin/open", "-n", bundle).Run(); err != nil {
+			return fmt.Errorf("relaunch: %w", err)
+		}
+	case "windows":
+		cmd := exec.Command(resolved)
+		if err := cmd.Start(); err != nil {
+			return fmt.Errorf("relaunch: %w", err)
+		}
+		_ = cmd.Process.Release()
+	default:
+		return errUnsupportedPlatform
+	}
+	wruntime.Quit(a.ctx)
+	return nil
+}
+
+// installTarget is the path whose ".old" copy should be cleaned at startup:
+// the bundle on macOS, the executable elsewhere. Empty when it cannot be
+// determined (for example a dev run outside a bundle).
+func installTarget() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	resolved, err := filepath.EvalSymlinks(exe)
+	if err != nil {
+		return ""
+	}
+	if runtime.GOOS == "darwin" {
+		bundle, err := update.LocateBundle(resolved)
+		if err != nil {
+			return ""
+		}
+		return bundle
+	}
+	return resolved
+}
+
+// SetAutoCheckUpdates persists the "check on startup" preference.
+func (a *App) SetAutoCheckUpdates(enabled bool) error {
+	st, err := a.settingsStore()
+	if err != nil {
+		return err
+	}
+	if a.update != nil {
+		a.update.setStore(st)
+	}
+	return st.SetDisableUpdateCheck(!enabled)
+}
+
+// OpenDownloadPage opens the release page for the available update.
+func (a *App) OpenDownloadPage() {
+	if a.ctx == nil {
+		return
+	}
+	page := latestPage
+	if a.update != nil {
+		if v := a.update.View(); v.URL != "" {
+			page = v.URL
+		}
+	}
+	wruntime.BrowserOpenURL(a.ctx, page)
 }
 
 func (a *App) settingsStore() (*settings.Store, error) {

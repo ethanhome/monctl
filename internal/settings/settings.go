@@ -1,6 +1,6 @@
 // Package settings persists GUI-only preferences: per-monitor input-source
-// labels, recent switch order, and whether the input-switch confirmation
-// prompt is skipped.
+// labels, recent switch order, whether the input-switch confirmation prompt
+// is skipped, and the update-check preference with its last check time.
 //
 // It is deliberately separate from the removed hotkey config.json. The
 // current input source is always read from the monitor itself; only the
@@ -14,14 +14,17 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 const fileName = "settings.json"
 
 // Settings is the on-disk document.
 type Settings struct {
-	SkipSwitchConfirm bool               `json:"skipSwitchConfirm"`
-	Monitors          map[string]Monitor `json:"monitors,omitempty"`
+	SkipSwitchConfirm  bool               `json:"skipSwitchConfirm"`
+	DisableUpdateCheck bool               `json:"disableUpdateCheck,omitempty"`
+	LastUpdateCheck    string             `json:"lastUpdateCheck,omitempty"` // RFC3339
+	Monitors           map[string]Monitor `json:"monitors,omitempty"`
 }
 
 // Monitor holds per-monitor display preferences.
@@ -169,6 +172,40 @@ func (st *Store) SetSkipSwitchConfirm(skip bool) error {
 	return st.update(func(s *Settings) { s.SkipSwitchConfirm = skip })
 }
 
+// DisableUpdateCheck reports whether the startup update check is off.
+func (st *Store) DisableUpdateCheck() bool {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	return st.s.DisableUpdateCheck
+}
+
+// SetDisableUpdateCheck turns the startup update check on or off.
+func (st *Store) SetDisableUpdateCheck(disabled bool) error {
+	return st.update(func(s *Settings) { s.DisableUpdateCheck = disabled })
+}
+
+// LastUpdateCheck returns when an update check last ran, or the zero time
+// when it never has.
+func (st *Store) LastUpdateCheck() time.Time {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if st.s.LastUpdateCheck == "" {
+		return time.Time{}
+	}
+	t, err := time.Parse(time.RFC3339, st.s.LastUpdateCheck)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
+}
+
+// RecordUpdateCheck stores the time of an update-check attempt. Failed
+// attempts count too, so an offline machine does not retry on every start.
+func (st *Store) RecordUpdateCheck(t time.Time) error {
+	stamp := t.UTC().Truncate(time.Second).Format(time.RFC3339)
+	return st.update(func(s *Settings) { s.LastUpdateCheck = stamp })
+}
+
 // update applies fn to a copy, writes it, and only then commits it in memory.
 func (st *Store) update(fn func(*Settings)) error {
 	st.mu.Lock()
@@ -218,7 +255,12 @@ func writeAtomic(path string, s Settings) error {
 }
 
 func (s Settings) clone() Settings {
-	out := Settings{SkipSwitchConfirm: s.SkipSwitchConfirm, Monitors: make(map[string]Monitor, len(s.Monitors))}
+	out := Settings{
+		SkipSwitchConfirm:  s.SkipSwitchConfirm,
+		DisableUpdateCheck: s.DisableUpdateCheck,
+		LastUpdateCheck:    s.LastUpdateCheck,
+		Monitors:           make(map[string]Monitor, len(s.Monitors)),
+	}
 	for id, m := range s.Monitors {
 		labels := make(map[string]string, len(m.Labels))
 		for k, v := range m.Labels {

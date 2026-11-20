@@ -7,7 +7,15 @@ import {
     SetSkipSwitchConfirm,
     SetBrightness,
     SetContrast,
+    AppVersion,
+    GetUpdateState,
+    CheckForUpdates,
+    SetAutoCheckUpdates,
+    StartUpdate,
+    RestartApp,
+    OpenDownloadPage,
 } from '../wailsjs/go/main/App';
+import { EventsOn } from '../wailsjs/runtime/runtime';
 
 // Fixed input-source list (MCCS names from monitor/vcp.go). It is generic:
 // the panel may not actually have every port, which the hint under the list
@@ -29,6 +37,7 @@ const state = {
     busy: false,
     skipSwitchConfirm: false,
     switching: false,
+    autoCheck: true,
 };
 
 const $ = (sel) => document.querySelector(sel);
@@ -68,6 +77,7 @@ async function refresh() {
         state.error = '';
         if (settings) {
             state.skipSwitchConfirm = !!settings.skipSwitchConfirm;
+            state.autoCheck = !settings.disableUpdateCheck;
             for (const m of state.monitors) {
                 const saved = settings.monitors?.[m.id];
                 if (saved && saved.labels) m.labels = saved.labels;
@@ -383,5 +393,172 @@ async function switchInput(m, key, inputLabel) {
     }
 }
 
+// renderUpdate shows or hides the release banner. It is deliberately
+// independent of the monitor state: an update is worth showing even when no
+// monitor could be found. state is "working"/"done"/"failed" during and after
+// an in-app install, empty while only offering the release.
+function renderUpdate(view) {
+    const banner = $('#update-banner');
+    if (!view) {
+        banner.hidden = true;
+        banner.replaceChildren();
+        return;
+    }
+    // "Checking" makes no sense while an install owns the updater.
+    $('#check-updates').disabled = view.state === 'working';
+    const latest = view.latest || '';
+    switch (view.state) {
+    case 'working': {
+        const btn = el('button', 'primary', '更新中…');
+        btn.disabled = true;
+        const text = view.step === 'install'
+            ? `正在校验并安装 ${latest}…`
+            : `正在下载 ${latest}…`;
+        banner.replaceChildren(el('span', 'update-text', text), btn);
+        banner.hidden = false;
+        return;
+    }
+    case 'done': {
+        const later = el('button', '', '稍后');
+        later.onclick = () => { banner.hidden = true; };
+        const restart = el('button', 'primary', '立即重启');
+        restart.onclick = () => RestartApp().catch((err) => toast(`重启失败：${err}`));
+        banner.replaceChildren(el('span', 'update-text', `已更新到 ${latest}，重启生效`), later, restart);
+        banner.hidden = false;
+        return;
+    }
+    case 'failed': {
+        const open = el('button', 'primary', '打开下载页');
+        open.onclick = () => OpenDownloadPage().catch((err) => toast(`无法打开下载页：${err}`));
+        const detail = view.error ? `：${view.error}` : '';
+        const text = el('span', 'update-text', failureText(view.reason) + detail);
+        if (view.error) text.title = view.error;
+        banner.replaceChildren(text, open);
+        banner.hidden = false;
+        return;
+    }
+    }
+    if (!view.available) {
+        banner.hidden = true;
+        banner.replaceChildren();
+        return;
+    }
+    const updateBtn = el('button', 'primary', '更新');
+    updateBtn.onclick = startUpdate;
+    banner.replaceChildren(el('span', 'update-text', `${latest} 可用`), updateBtn);
+    banner.hidden = false;
+}
+
+function failureText(reason) {
+    switch (reason) {
+    case 'readonly':
+        return '请先把 monctl 拖入 Applications，再使用自动更新';
+    case 'permission':
+        return '没有写入权限，无法自动更新';
+    case 'unsupported':
+        return '当前运行方式不支持自动更新';
+    default:
+        return '自动更新失败，可从下载页手动安装';
+    }
+}
+
+async function startUpdate() {
+    try {
+        renderUpdate(await StartUpdate());
+    } catch (err) {
+        toast(`更新失败：${err}`);
+    }
+}
+
+async function checkUpdates() {
+    const btn = $('#check-updates');
+    btn.disabled = true;
+    try {
+        const view = await CheckForUpdates();
+        renderUpdate(view);
+        if (view.state === 'done') return;
+        if (!view.available) toast('已是最新版本');
+    } catch (err) {
+        const msg = String(err);
+        // The messages are stable backend sentinels; see gui/update.go and
+        // internal/update/update.go.
+        if (msg.includes('already in progress')) toast('更新正在进行中');
+        else if (msg.includes('not a release build')) toast('开发版不检查更新');
+        else toast(`检查更新失败：${msg}`);
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+async function settingsDialog() {
+    // Read the stored value first: state.autoCheck may still hold the default
+    // if refresh() failed, and saving that would silently overwrite settings.
+    let autoCheck = state.autoCheck;
+    try {
+        const settings = await GetSettings();
+        autoCheck = !settings.disableUpdateCheck;
+        state.autoCheck = autoCheck;
+    } catch (err) {
+        console.warn('settings:', err);
+    }
+
+    const dlg = el('dialog', 'confirm');
+    const title = el('p', 'confirm-title', '设置');
+    title.id = 'settings-title';
+    dlg.setAttribute('aria-labelledby', title.id);
+    dlg.append(title);
+
+    const row = el('label', 'dont-ask');
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = autoCheck;
+    row.append(cb, document.createTextNode('启动时检查更新'));
+    dlg.append(row);
+
+    // Save on change so closing the dialog by any route (button, Esc) keeps
+    // what the user picked.
+    cb.onchange = async () => {
+        const want = cb.checked;
+        try {
+            await SetAutoCheckUpdates(want);
+            state.autoCheck = want;
+        } catch (err) {
+            cb.checked = !want;
+            toast(`保存设置失败：${err}`);
+        }
+    };
+
+    const actions = el('div', 'confirm-actions');
+    const done = el('button', 'primary', '关闭');
+    actions.append(done);
+    dlg.append(actions);
+
+    done.onclick = () => dlg.close();
+    dlg.addEventListener('close', () => dlg.remove());
+    document.body.append(dlg);
+    dlg.showModal();
+    cb.focus();
+}
+
+async function init() {
+    $('#check-updates').onclick = checkUpdates;
+    $('#settings').onclick = settingsDialog;
+    // The automatic startup check runs in the backend and reports here.
+    EventsOn('update:state', (view) => renderUpdate(view));
+
+    try {
+        const v = await AppVersion();
+        $('#version').textContent = v ? `monctl ${v}` : '';
+    } catch (err) {
+        console.warn('version:', err);
+    }
+    try {
+        renderUpdate(await GetUpdateState());
+    } catch (err) {
+        console.warn('update state:', err);
+    }
+    refresh();
+}
+
 $('#refresh').onclick = refresh;
-refresh();
+init();
