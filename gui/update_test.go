@@ -70,7 +70,7 @@ func TestCheckReportsAvailableRelease(t *testing.T) {
 	if !view.Available || view.Current != "v0.2.0" || view.Latest != "v0.3.0" {
 		t.Fatalf("view = %+v", view)
 	}
-	if want := "https://github.com/bacnh85/monctl/releases/tag/v0.3.0"; view.URL != want {
+	if want := "https://github.com/ethanhome/monctl/releases/tag/v0.3.0"; view.URL != want {
 		t.Fatalf("URL = %q, want %q", view.URL, want)
 	}
 	if len(emitted) != 1 || emitted[0] != view {

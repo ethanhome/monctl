@@ -18,8 +18,8 @@ import (
 const (
 	autoCheckDelay = 5 * time.Second
 	checkInterval  = 24 * time.Hour
-	releasePage    = "https://github.com/bacnh85/monctl/releases/tag/"
-	latestPage     = "https://github.com/bacnh85/monctl/releases/latest"
+	releasePage    = "https://github.com/ethanhome/monctl/releases/tag/"
+	latestPage     = "https://github.com/ethanhome/monctl/releases/latest"
 )
 
 var (
