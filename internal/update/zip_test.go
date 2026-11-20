@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/bacnh85/monctl/internal/update"
@@ -71,7 +72,9 @@ func TestExtractAppExtractsBundle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm()&0o100 == 0 {
+	// Windows has no POSIX execute bit; the bundle is only ever unpacked on
+	// macOS, so only assert this where the bit exists.
+	if runtime.GOOS != "windows" && info.Mode().Perm()&0o100 == 0 {
 		t.Fatalf("executable lost its x bit: %v", info.Mode())
 	}
 }
