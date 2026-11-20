@@ -44,19 +44,23 @@ Both the CLI and the desktop app can update themselves from GitHub Releases.
 
 About five seconds after launch the app checks for a newer release, and at
 most once every 24 hours. The check is silent: when offline or rate-limited
-nothing is shown. When a newer version exists, a bar appears under the title
-with a **更新 (Update)** button. Clicking it downloads that release, verifies
-its SHA256 against the `SHA256SUMS` from the same release, and replaces the
-running app in place. The old copy is kept beside it as `.old` for 24 hours.
-Finish with **立即重启 (Restart now)**, or **稍后 (Later)** to restart yourself.
+nothing is shown. When a newer version exists, the **更新 (Update)** button in
+the footer lights up. Clicking it downloads that release, verifies its SHA256
+against the `SHA256SUMS` from the same release, and replaces the running app
+in place. The old copy is kept beside it as `.old` for 24 hours. While it runs
+the button shows the current step and **检查更新** is disabled; when it
+finishes the button becomes **重启以完成更新 (Restart to finish)** — click it
+to relaunch into the new version.
 
-The footer shows the installed version and has two buttons: **检查更新 (Check
-for updates)**, which bypasses the daily limit, and **设置 (Settings)**, where
-the startup check can be turned off or on.
+The footer shows the installed version and has three buttons: **检查更新
+(Check for updates)**, which bypasses the daily limit, **更新 (Update)**,
+which is greyed out and disabled when there is nothing to install, and
+**设置 (Settings)**, where the startup check can be turned off or on.
 
 Updates never request sudo/UAC and never touch a location they cannot write.
 When the running copy is in such a place, clicking the update button stops
-before downloading and the bar shows the reason plus a download-page button:
+before downloading; the button becomes **打开下载页 (Open download page)** and
+a toast shows the reason:
 
 - macOS, launched from the mounted `.dmg` (or from an App Translocation path):
   drag `monctl.app` into `/Applications` first.

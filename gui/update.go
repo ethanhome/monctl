@@ -189,7 +189,7 @@ const (
 // StartUpgrade downloads, verifies and installs the available release. It
 // reports progress through the emit callback. Expected failures (read-only
 // location, permissions) are reflected in the returned view rather than as
-// errors, so the banner can offer the download page; the error return is for
+// errors, so the UI can offer the download page; the error return is for
 // callers that asked at the wrong time.
 func (c *updateController) StartUpgrade(ctx context.Context) (UpdateView, error) {
 	c.mu.Lock()
