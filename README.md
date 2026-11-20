@@ -33,6 +33,89 @@ right-click → Open, or run
 `xattr -d com.apple.quarantine /Applications/monctl.app`. The CLI is a bare
 binary; put it on the internal disk (e.g. `~/bin/monctl`).
 
+`SHA256SUMS` and `monctl-macos-arm64.zip` are published with every release for
+the updaters; you do not need to download them by hand.
+
+## Upgrade
+
+Both the CLI and the desktop app can update themselves from GitHub Releases.
+
+### Desktop app
+
+About five seconds after launch the app checks for a newer release, and at
+most once every 24 hours. The check is silent: when offline or rate-limited
+nothing is shown. When a newer version exists, a bar appears under the title
+with a **更新 (Update)** button. Clicking it downloads that release, verifies
+its SHA256 against the `SHA256SUMS` from the same release, and replaces the
+running app in place. The old copy is kept beside it as `.old` for 24 hours.
+Finish with **立即重启 (Restart now)**, or **稍后 (Later)** to restart yourself.
+
+The footer shows the installed version and has two buttons: **检查更新 (Check
+for updates)**, which bypasses the daily limit, and **设置 (Settings)**, where
+the startup check can be turned off or on.
+
+Updates never request sudo/UAC and never touch a location they cannot write.
+When the running copy is in such a place, clicking the update button stops
+before downloading and the bar shows the reason plus a download-page button:
+
+- macOS, launched from the mounted `.dmg` (or from an App Translocation path):
+  drag `monctl.app` into `/Applications` first.
+- macOS, `/Applications` not writable (installed by another admin): install
+  the `.dmg` manually.
+- Windows, the folder holding the exe not writable (for example
+  `C:\Program Files`).
+
+The first macOS install is unsigned and not notarised, so the right-click →
+Open step described under Install is needed once. Files written by the updater
+do not carry `com.apple.quarantine`, so self-updates do not repeat that
+prompt.
+
+### Command line
+
+    monctl upgrade            # check, print the plan, ask y/N
+    monctl upgrade --check    # check only
+    monctl upgrade --yes      # install without asking
+
+Exit codes:
+
+| Code | Meaning |
+|---|---|
+| `0` | Up to date, upgraded, cancelled, or plan printed because stdin is not a terminal |
+| `1` | Upgrade failed, or the check was refused (a `dev` build) |
+| `2` | Usage error |
+| `10` | `--check` found a newer release |
+| `11` | `--check` could not reach the update source |
+
+Without `--yes`, when stdin is not a terminal the plan is printed but nothing
+is installed. `dev` builds refuse to check.
+
+### Manual recovery
+
+Every update leaves the previous version next to the current one for 24 hours,
+in case the new one does not start. Quit the app first.
+
+macOS — run this in the folder that holds `monctl.app`, normally
+`/Applications`:
+
+    mv monctl.app monctl.app.broken
+    mv monctl.app.old monctl.app
+
+Windows GUI — run this in the folder holding the exe (the release name is
+shown; substitute your own if you renamed it):
+
+    cd <folder containing the exe>
+    ren monctl-gui-windows-amd64.exe monctl-gui-windows-amd64.exe.broken
+    ren monctl-gui-windows-amd64.exe.old monctl-gui-windows-amd64.exe
+
+Windows CLI from the release files — in the folder holding the CLI exe:
+
+    ren monctl-windows-amd64.exe monctl-windows-amd64.exe.broken
+    ren monctl-windows-amd64.exe.old monctl-windows-amd64.exe
+
+CLI installs use the same `.old` scheme beside the `monctl` / `monctl.exe`
+binary. The `.old` copy is deleted at the next launch once it is more than 24
+hours old.
+
 ## GUI
 
 The window lists every detected monitor; its title bar shows the app version.
@@ -71,6 +154,7 @@ control it any more. There is no automatic switch-back.
     monctl get  brightness|contrast|input|power [-m N]
     monctl set  <name> <value> [-m N]  # value: percent, +N/-N offset, name, or 0xNN
     monctl vcp  <0xcode> [value]       # raw DDC escape hatch
+    monctl upgrade [--check] [--yes]   # update to the latest release
     monctl version
 
 Brightness/contrast values are **percent 0-100**, scaled to the panel-reported
@@ -119,11 +203,15 @@ macOS) Xcode CLT. Only Windows amd64 and macOS arm64 are release targets.
 
 ## Layout
 
-    cmd/monctl/        CLI dispatch (scan / get / set / vcp / version)
+    cmd/monctl/        CLI dispatch (scan / get / set / vcp / upgrade / version)
     internal/service/  Shared business layer: control lookup, value parsing,
                        VCP max scaling, per-monitor get/set (+ tests)
-    internal/settings/ GUI preferences: input labels, skip-switch-confirm
-    gui/               Wails app (separate module), vanilla JS frontend
+    internal/settings/ GUI preferences: input labels, skip-switch-confirm,
+                       update-check preference and last check time
+    internal/update/   Release check, SHA256 verify, safe zip unpack, in-place
+                       binary/bundle installers (+ tests)
+    gui/               Wails app (separate module), vanilla JS frontend;
+                       update.go = GUI update state machine and events
     monitor/           Controller seam; windows.go = dxva2/user32 syscalls;
                        darwin.go = IOAVService DDC (Apple Silicon, cgo);
                        vcp.go = VCP codes + input map (+ tests)

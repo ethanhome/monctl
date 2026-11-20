@@ -36,6 +36,19 @@ jobs:
         run: |
           go install github.com/wailsapp/wails/v2/cmd/wails@v2.17.1
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Run update tests
+        # The installer's rename-while-running and rollback behaviour differs
+        # per OS, so exercise these on the real runner before packaging.
+        shell: bash
+        run: go test ./internal/update/ ./cmd/monctl/
+      - name: Run GUI tests
+        shell: bash
+        working-directory: gui
+        run: |
+          # A fresh checkout has no frontend/dist and main.go embeds it.
+          mkdir -p frontend/dist
+          touch frontend/dist/.gitkeep
+          go test ./...
       - name: Build CLI
         shell: bash
         env:
@@ -74,6 +87,31 @@ jobs:
         run: |
           wails build -nocolour -ldflags "-X main.version=${GITHUB_REF_NAME}"
           ../tools/app/mkdmg.sh build/bin ../dist/monctl-macos-arm64.dmg monctl
+          # The in-app updater replaces the whole bundle, so publish the app
+          # as a zip whose root holds exactly one monctl.app.
+          ditto -c -k --keepParent build/bin/monctl.app ../dist/monctl-macos-arm64.zip
+          # Fail the release here rather than shipping a zip every updater
+          # would reject: root shape, no symlinks, and the plist version.
+          python3 - <<'PY'
+          import os, plistlib, stat, sys, zipfile
+          with zipfile.ZipFile("../dist/monctl-macos-arm64.zip") as z:
+              tops = {n.split("/", 1)[0] for n in z.namelist()}
+              if tops != {"monctl.app"}:
+                  sys.exit("zip root is %r, want exactly monctl.app" % sorted(tops))
+              for i in z.infolist():
+                  if stat.S_ISLNK(i.external_attr >> 16):
+                      sys.exit("zip contains symlink %s" % i.filename)
+              with z.open("monctl.app/Contents/Info.plist") as f:
+                  data = f.read()
+              # Wails writes a bare DOCTYPE without the XML declaration;
+              # plistlib refuses that, so add the declaration it expects.
+              if not data.lstrip().startswith(b"<?xml"):
+                  data = b'<?xml version="1.0" encoding="UTF-8"?>\n' + data
+              version = plistlib.loads(data)["CFBundleShortVersionString"]
+          want = os.environ["GITHUB_REF_NAME"].lstrip("v")
+          if version != want:
+              sys.exit("bundle version %s does not match tag %s" % (version, want))
+          PY
       - uses: actions/upload-artifact@v7
         with:
           name: dist-${{ matrix.target_os }}-${{ matrix.target_arch }}
@@ -87,6 +125,19 @@ jobs:
         with:
           merge-multiple: true
           path: dist/
+      - name: Generate checksums
+        # The CLI updater downloads this file and verifies the asset it picks.
+        # List the expected artifacts explicitly so a missing build fails the
+        # release instead of producing a self-consistent but incomplete list.
+        working-directory: dist
+        run: |
+          set -eu
+          for f in monctl-windows-amd64.exe monctl-gui-windows-amd64.exe \
+                   monctl-darwin-arm64 monctl-macos-arm64.dmg monctl-macos-arm64.zip; do
+            [ -f "$f" ] || { echo "::error::missing release artifact $f"; exit 1; }
+          done
+          sha256sum -- monctl-* > SHA256SUMS
+          sha256sum --check --quiet SHA256SUMS
       - uses: softprops/action-gh-release@v2
         with:
           files: dist/*

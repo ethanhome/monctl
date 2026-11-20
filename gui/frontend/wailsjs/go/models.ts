@@ -76,6 +76,32 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class UpdateView {
+	    available: boolean;
+	    current: string;
+	    latest: string;
+	    url: string;
+	    state: string;
+	    step: string;
+	    reason: string;
+	    error: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new UpdateView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.available = source["available"];
+	        this.current = source["current"];
+	        this.latest = source["latest"];
+	        this.url = source["url"];
+	        this.state = source["state"];
+	        this.step = source["step"];
+	        this.reason = source["reason"];
+	        this.error = source["error"];
+	    }
+	}
 
 }
 
@@ -97,6 +123,8 @@ export namespace settings {
 	}
 	export class Settings {
 	    skipSwitchConfirm: boolean;
+	    disableUpdateCheck?: boolean;
+	    lastUpdateCheck?: string;
 	    monitors?: Record<string, Monitor>;
 	
 	    static createFrom(source: any = {}) {
@@ -106,6 +134,8 @@ export namespace settings {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.skipSwitchConfirm = source["skipSwitchConfirm"];
+	        this.disableUpdateCheck = source["disableUpdateCheck"];
+	        this.lastUpdateCheck = source["lastUpdateCheck"];
 	        this.monitors = this.convertValues(source["monitors"], Monitor, true);
 	    }
 	

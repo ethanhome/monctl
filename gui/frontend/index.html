@@ -11,7 +11,15 @@
         <h1 id="title">monctl</h1>
         <button id="refresh" class="ghost" title="重新扫描">↻ 刷新</button>
     </header>
+    <div id="update-banner" class="update-banner" role="status" aria-live="polite" hidden></div>
     <main id="content"></main>
+    <footer id="footer">
+        <span id="version" class="version"></span>
+        <div class="footer-actions">
+            <button id="check-updates" class="ghost">检查更新</button>
+            <button id="settings" class="ghost">设置</button>
+        </div>
+    </footer>
 </div>
 <div id="toast" hidden></div>
 <script src="./src/main.js" type="module"></script>

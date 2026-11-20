@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func open(t *testing.T, dir string) *Store {
@@ -268,5 +269,53 @@ func TestNoBehaviouralStatePersisted(t *testing.T) {
 		if strings.Contains(string(data), banned) {
 			t.Errorf("settings file contains %q: %s", banned, data)
 		}
+	}
+}
+
+func TestUpdatePreferencesRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	st := open(t, dir)
+	if st.DisableUpdateCheck() {
+		t.Error("update check should be enabled by default")
+	}
+	if got := st.LastUpdateCheck(); !got.IsZero() {
+		t.Errorf("LastUpdateCheck = %v, want zero (never checked)", got)
+	}
+
+	when := time.Date(2026, 11, 20, 10, 30, 0, 0, time.UTC)
+	if err := st.SetDisableUpdateCheck(true); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RecordUpdateCheck(when); err != nil {
+		t.Fatal(err)
+	}
+
+	re := open(t, dir)
+	if !re.DisableUpdateCheck() {
+		t.Error("disableUpdateCheck not persisted")
+	}
+	if got := re.LastUpdateCheck(); !got.Equal(when) {
+		t.Errorf("LastUpdateCheck = %v, want %v", got, when)
+	}
+	snap := re.Snapshot()
+	if !snap.DisableUpdateCheck {
+		t.Error("Snapshot lost DisableUpdateCheck")
+	}
+	if snap.LastUpdateCheck != when.Format(time.RFC3339) {
+		t.Errorf("Snapshot LastUpdateCheck = %q, want %q", snap.LastUpdateCheck, when.Format(time.RFC3339))
+	}
+}
+
+func TestMissingUpdateFieldsStayDefault(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, fileName), []byte(`{"skipSwitchConfirm":true}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	st := open(t, dir)
+	if st.DisableUpdateCheck() {
+		t.Error("missing disableUpdateCheck must mean enabled")
+	}
+	if got := st.LastUpdateCheck(); !got.IsZero() {
+		t.Errorf("missing lastUpdateCheck = %v, want zero", got)
 	}
 }
