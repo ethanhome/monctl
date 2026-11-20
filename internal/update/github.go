@@ -11,7 +11,7 @@ import (
 
 const (
 	apiBase     = "https://api.github.com"
-	defaultRepo = "bacnh85/monctl"
+	defaultRepo = "ethanhome/monctl"
 )
 
 // GitHubSource reads the latest stable release from GitHub's REST API.
